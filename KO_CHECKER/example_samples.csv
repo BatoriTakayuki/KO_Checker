@@ -1,0 +1,4 @@
+srx_id,metadata_label,bam_path
+SRX1,WT,/data/Analysis/SRX1/SRX1.bam
+SRX2,WT,/data/Analysis/SRX2/SRX2.bam
+SRX3,KO,/data/Analysis/SRX3/SRX3.bam

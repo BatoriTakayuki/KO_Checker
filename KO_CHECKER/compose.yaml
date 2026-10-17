@@ -1,0 +1,13 @@
+services:
+  rnako:
+    build: .
+    container_name: rnako
+    init: true
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ${RNAKO_DATA_DIR:-./inputs}:/data:ro
+      - ./inputs:/inputs:ro
+      - ./references:/references
+      - ./results:/results
+      - ./workdata:/workdata

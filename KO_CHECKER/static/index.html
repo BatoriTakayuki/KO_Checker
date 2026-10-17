@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KO_Checker | RNA evidence explorer</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header><span class="brand">KO_Checker <small>RNA evidence explorer</small></span><span class="tag">SRX → FASTQ → BAM → RNA評価</span></header>
+<main>
+<section class="intro"><span class="eyebrow">RNA-SEQ / KO EVIDENCE</span><h1>KOの根拠を、配列から。</h1><p>WT群とKO群のSRXを指定し、対象遺伝子の変異・スプライシング・発現量を比較します。</p><p class="notice">結果はRNA上の暫定評価です。DNA上のKOやタンパク質消失を確定するものではありません。</p></section>
+<div id="health" class="health" role="status">解析環境を確認中…</div>
+<div class="workspace">
+<aside><section class="card"><h2>新しい解析</h2><form id="analysis-form">
+<label for="gene">対象遺伝子</label><input id="gene" name="gene" placeholder="例: Phf3" required maxlength="120" pattern="[A-Za-z0-9_.-]+">
+<label for="assembly">参照ゲノム</label><select id="assembly" name="assembly"><option value="mm10">マウス · mm10 (GRCm38)</option><option value="mm39">マウス · mm39 (GRCm39)</option><option value="hg38">ヒト · hg38 (GRCh38)</option></select>
+<label for="wt"><span class="dot wt"></span> WT群のSRX</label><textarea id="wt" name="wt" placeholder="SRX123456&#10;SRX123457" required rows="4"></textarea>
+<label for="ko"><span class="dot ko"></span> KO群のSRX</label><textarea id="ko" name="ko" placeholder="SRX123458&#10;SRX123459" required rows="4"></textarea>
+<p class="hint">改行・カンマ・空白で複数指定。各群30件まで。ERX / DRXにも対応します。SRR / ERR / DRRは入力対象外です。</p>
+<label class="check-option"><input type="checkbox" name="pause_after_reference" id="pause-after-reference">参照・索引が完成したら中断する</label>
+<details><summary>CPUスレッド数（オプション）</summary><label for="threads">使用するスレッド数</label><input id="threads" name="threads" type="number" min="1" max="256" step="1" placeholder="空欄なら既定値" aria-describedby="threads-hint"><p id="threads-hint" class="hint">空欄ならサーバーの既定値を使用します。各ツールへの指定値で、処理全体のCPU使用量の上限ではありません。中断後の再開でも同じ設定を使用します。</p></details>
+<button type="submit" id="submit">解析を開始する <span>→</span></button><p id="form-error" class="error" role="alert"></p>
+</form><details><summary>解析条件とデータの扱い</summary><p>公開された通常のRNA-seqを対象とします。各SRXの全runを統合します。単一細胞・UMI・特殊なライブラリは対象外です。</p><p>参照・FASTQ・完了済みBAMを保存して再利用します。初回は大量のダウンロード、数時間以上の処理、十分なディスク容量が必要になる場合があります。</p><p>HISAT2は非ストランド指定で実行します。既存のKO判定閾値を維持し、アダプタ除去は自動実行しません。</p></details></section>
+<section class="card history"><h2>解析履歴</h2><div id="history"><p class="muted">まだ解析はありません。</p></div></section></aside>
+<div class="content">
+<section id="empty" class="card empty"><div class="empty-symbol">⌁</div><h2>比較するサンプルを登録してください</h2><p>遺伝子とWT・KO群のSRXを入力すると、取得からRNA評価までを自動で進めます。</p><div class="steps">SRX確認 <b>→</b> SRA取得 <b>→</b> HISAT2 <b>→</b> KO評価</div></section>
+<section id="job" class="card" hidden><div class="section-top"><div><span class="eyebrow" id="job-id"></span><h2 id="job-title"></h2></div><span id="status" class="badge"></span></div><p id="job-message" role="status" aria-live="polite"></p><progress id="progress" max="100" value="0"></progress><div class="progress-caption"><span id="stage"></span><span id="percent"></span></div>
+<div class="job-metrics"><span id="elapsed"></span><span id="run-count"></span><span id="last-update"></span></div>
+<p id="activity" class="hint"></p><p id="storage-progress" class="hint"></p><div id="transfer" hidden><progress id="transfer-progress" max="100" value="0"></progress><p id="transfer-text" class="hint"></p></div>
+<div class="job-actions"><button id="pause" class="secondary" hidden>中断する</button><button id="resume" hidden>再開する</button><button id="retry" class="secondary" hidden>同じ条件で再実行</button></div>
+<p id="pause-info" class="hint"></p><p id="job-error" class="error"></p><details id="log-panel"><summary>処理ログ</summary><pre id="log"></pre><a id="log-download">ログ全体をダウンロード</a></details></section>
+<div id="results" hidden>
+<section class="card"><h2>エクソンのカバレッジとWT比較</h2><p id="exon-summary" role="status"></p><div class="scroll"><table id="exons-table"></table></div><p class="hint">「局所的な読み取り低下の疑い」はRNA上の所見であり、DNAのエクソン欠損を確定しません。深度10以上の塩基が80%以上あるWTと他エクソンを比較に使用します。他エクソンで補正した相対深度がWTの20%以下、かつ読まれた塩基が50%未満の場合に疑いを表示します。探索用の基準で、統計的な有意差検定ではありません。</p><details><summary>数値の読み方</summary><p class="hint">深度は塩基品質20以上の有効リード数です。断片数は品質フィルタ前の塩基も含め、エクソンに整列したユニーク断片数です。スキップ支持はエクソン全体をまたぐ接合断片数で、既存アイソフォームによる接合も含みます。ゼロ深度区間は最長の連続区間を示します。転写産物によってエクソン番号が異なるため座標を併記します。gRNA標的座標の自動特定は行わず、既知の標的部位の評価はこの表の座標と照合してください。</p></details></section>
+<section class="card"><div class="section-top"><h2>RNA評価の結果</h2><span class="muted">検体ごとの証拠</span></div><div id="summary" class="summary"></div><div class="scroll"><table id="samples-table"></table></div><p class="hint">WT_likeは候補位置での参照配列などを支持する判定です。undeterminedはKO不成立を意味しません。発現量だけでKOを判定しません。</p></section>
+<section class="card"><h2>WT群とKO群の比較</h2><div class="charts"><div><h3>対象遺伝子の発現量 <small>CPM</small></h3><div id="cpm-chart"></div></div><div><h3>検体ごとのWT基準比</h3><div id="ratio-chart"></div></div></div><p class="hint">CPMはエクソン上のユニーク断片数をライブラリ断片数で補正した指標です（TPMではありません）。WT基準は、WTラベルかつWT_likeの検体の平均です。群平均には統計検定を適用していません。</p></section>
+<section class="card"><h2>変異位置の局所支持率</h2><select id="event-select" aria-label="表示する変異"></select><div id="event-chart"></div><div id="event-depth" class="hint"></div><p class="hint">候補位置を全検体で再観測した結果です。深度10未満は低カバレッジのため参考値です。「未掲載」はデータ不足などを示し、0%とは異なります。支持率は遺伝子全体の異常mRNA割合ではありません。</p></section>
+<section class="card"><h2>判定根拠の詳細</h2><p id="table-limit" class="hint"></p><details open><summary>変異候補</summary><div class="scroll"><table id="events-table"></table></div></details><details><summary>スプライス接合</summary><div class="scroll"><table id="junctions-table"></table></div></details><details><summary>予測タンパク質・NMD</summary><p class="hint">注釈転写産物ごとに、1変異または1スキップを適用した予測です。タンパク質配列の存在や量の実測ではありません。</p><div class="scroll"><table id="effects-table"></table></div></details></section>
+<section class="card"><h2>解析データを保存</h2><div id="downloads" class="downloads"></div></section>
+</div></div></div></main><footer>KO_Checker · 既存のRNA KO evidence解析エンジンを使用</footer>
+</body></html>
