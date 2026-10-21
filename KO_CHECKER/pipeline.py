@@ -1,4 +1,4 @@
-"""SRX -> SRA runs -> FASTQ -> HISAT2 BAM -> existing RNA evidence analysis."""
+"""SRX -> prefetch -> fasterq-dump -> fastp -> HISAT2 BAM -> RNA evidence."""
 from __future__ import annotations
 
 import csv
@@ -17,11 +17,28 @@ import urllib.parse
 import urllib.request
 
 import rnako
+from reporting import write_conclusion
 
-PIPELINE_VERSION = 1
+PIPELINE_VERSION = 2
+# Raw SRA/FASTQ conversion has not changed; retain version-1 download caches.
+FASTQ_VERSION = 1
+FASTP_VERSION = 1
+MULTIMAP_MAX = 100
+TOOLS = ('prefetch', 'vdb-validate', 'fasterq-dump', 'fastp', 'hisat2', 'hisat2-build', 'samtools')
 ACCESSION = re.compile(r"(?:SRX|ERX|DRX)[0-9]+\Z")
 RUN = re.compile(r"(?:SRR|ERR|DRR)[0-9]+\Z")
 ROOT = Path(__file__).resolve().parent
+
+
+def fastp_options(layout):
+    return ['--detect_adapter_for_pe'] if layout == 'PAIRED' else []
+
+
+def mapping_options(layout):
+    options = ['-k', str(MULTIMAP_MAX), '--secondary']
+    if layout == 'PAIRED':
+        options += ['--no-mixed', '--no-discordant']
+    return options
 
 
 class PipelinePaused(RuntimeError):
@@ -129,6 +146,8 @@ def validate_request(payload):
         result['threads'] = int(threads)
     if payload.get('pause_after_reference') is True:
         result['pause_after_reference'] = True
+    if payload.get('confirm_replicates') is True:
+        result['confirm_replicates'] = True
     return result
 
 
@@ -218,6 +237,9 @@ class Pipeline:
         self.last_heartbeat = 0
         self.current_run = None
         self.current_index = None
+        self.current_trim = None
+        self.reference_fasta = None
+        self.preprocessing = {}
 
     def checkpoint(self):
         if self.should_pause():
@@ -245,6 +267,9 @@ class Pipeline:
         elif command == 'fasterq-dump' and self.current_run:
             paths = (self.data / 'fastq' / self.current_run).glob('*.fastq')
             storage_label = 'FASTQ書き出し済み'
+        elif command == 'fastp' and self.current_trim:
+            paths = self.current_trim.glob('*.partial.fastq.gz')
+            storage_label = '前処理済みFASTQ書き出し済み'
         elif command == 'HISAT2 / samtools sort' and self.current_run:
             paths = (self.data / 'bam' / self.current_run).rglob('*.partial.bam')
             storage_label = 'BAM書き出し済み（バッファ中は増えません）'
@@ -289,7 +314,7 @@ class Pipeline:
             raise RuntimeError(f'{Path(str(args[0])).name} が終了コード{returncode}で失敗しました。ログを確認してください。')
 
     def tools(self):
-        names = ('prefetch', 'vdb-validate', 'fasterq-dump', 'hisat2', 'hisat2-build', 'samtools')
+        names = TOOLS
         missing = [name for name in names if not shutil.which(name)]
         if rnako.pysam is None or missing:
             raise RuntimeError('解析環境が不足しています。Dockerで起動してください。不足: ' + ', '.join(missing + ([] if rnako.pysam else ['pysam'])))
@@ -302,7 +327,7 @@ class Pipeline:
     def fastqs(self, row, versions):
         run = row['run_accession']
         self.current_run = run
-        signature = {'version': PIPELINE_VERSION, 'run': run, 'layout': row['library_layout'],
+        signature = {'version': FASTQ_VERSION, 'run': run, 'layout': row['library_layout'],
                      'fasterq': versions['fasterq-dump'], 'mode': 'split-files'}
         directory = self.data / 'fastq' / run
         directory.mkdir(parents=True, exist_ok=True)
@@ -315,13 +340,13 @@ class Pipeline:
         archive_root.mkdir(parents=True, exist_ok=True)
         # prefetch resumes interrupted downloads and validates archive availability.
         self.update(stage='sra_download', message=f'{run}: SRAデータを取得中', transfer=None)
-        self.command(['prefetch', run, '--max-size', 'u', '-O', archive_root / run])
+        self.command(['prefetch', run, '--max-size', 'u', '--output-directory', archive_root / run])
         # Depending on prefetch's output-directory handling, -O <root>/<run>
         # places the archive directly there or creates another <run> directory.
         # Only accept this accession's exact filename in these two known layouts.
         candidates = [parent / (run + suffix)
                       for parent in (archive_root / run, archive_root / run / run)
-                      for suffix in ('.sra', '.sralite')]
+                      for suffix in ('.sra', '.sralite', '')]
         archive = next((p for p in candidates if p.is_file() and p.stat().st_size), None)
         if archive is None:
             raise RuntimeError(f'{run}: prefetch後のSRAファイルが見つかりません。確認先: '
@@ -331,8 +356,8 @@ class Pipeline:
         temp = directory / 'scratch'
         temp.mkdir(exist_ok=True)
         self.update(stage='fastq_convert', message=f'{run}: SRAをFASTQへ変換中')
-        self.command(['fasterq-dump', archive, '--split-files', '--force', '-e', self.threads,
-                      '-O', directory, '-t', temp])
+        self.command(['fasterq-dump', archive, '--split-files', '--force', '--threads', self.threads,
+                      '--outdir', directory, '--temp', temp])
         if not paired and not paths[0].exists() and (directory / (run + '_1.fastq')).exists():
             os.replace(directory / (run + '_1.fastq'), paths[0])
         if not all(p.is_file() and p.stat().st_size for p in paths):
@@ -343,7 +368,56 @@ class Pipeline:
         mark_complete(directory, signature, paths)
         return paths
 
+    def trimmed_fastqs(self, row, raw, versions):
+        run, layout = row['run_accession'], row['library_layout']
+        paired = layout == 'PAIRED'
+        if len(raw) != (2 if paired else 1):
+            raise RuntimeError(f'{run}: fastpの入力FASTQ数がライブラリ構成と一致しません。')
+        options = fastp_options(layout)
+        signature = {'version': FASTP_VERSION, 'run': run, 'layout': layout,
+                     'raw_fastq': fingerprint(raw), 'fastp': versions['fastp'], 'options': options}
+        directory = self.data / 'trimmed' / run / digest(signature)
+        directory.mkdir(parents=True, exist_ok=True)
+        self.current_trim = directory
+        paths = [directory / (run + suffix + '.trim.fastq.gz')
+                 for suffix in (('_1', '_2') if paired else ('',))]
+        html, report = directory / (run + '_fastp.html'), directory / (run + '_fastp.json')
+        metadata = directory / 'preprocessing.json'
+        # Debian fastp releases cap their worker count at 16.
+        threads = min(self.threads, 16)
+        if valid_cache(directory, signature):
+            self.note(f'再利用 fastp前処理済みFASTQ: {run}')
+        else:
+            self.update(stage='fastq_trim', message=f'{run}: fastpでアダプタ除去・品質フィルタ中', transfer=None)
+            partial = [p.with_name(p.name.replace('.trim.fastq.gz', '.trim.partial.fastq.gz')) for p in paths]
+            partial_html, partial_report = directory / (run + '_fastp.partial.html'), directory / (run + '_fastp.partial.json')
+            args = ['fastp', *options, '-i', raw[0], '-o', partial[0]]
+            if paired:
+                args += ['-I', raw[1], '-O', partial[1]]
+            args += ['-h', partial_html, '-j', partial_report, '-w', threads]
+            self.command(args)
+            self.checkpoint()
+            summary = read_json(partial_report)
+            try:
+                remaining = summary['summary']['after_filtering']['total_reads']
+            except (TypeError, KeyError):
+                raise RuntimeError(f'{run}: fastpのQCレポートが不完全です。') from None
+            if not isinstance(remaining, int) or isinstance(remaining, bool) or remaining <= 0:
+                raise RuntimeError(f'{run}: fastp処理後に有効なリードが残りません。QCレポートを確認してください。')
+            sources = [*partial, partial_html, partial_report]
+            if not all(p.is_file() and p.stat().st_size for p in sources):
+                raise RuntimeError(f'{run}: fastpの出力FASTQ・QCレポートが揃いません。')
+            for source, destination in zip(sources, [*paths, html, report]):
+                os.replace(source, destination)
+            atomic_json(metadata, {'raw_fastq': list(map(str, raw)), 'trimmed_fastq': list(map(str, paths)),
+                                   'fastp_html': str(html), 'fastp_json': str(report),
+                                   'fastp_options': options, 'fastp_threads': threads})
+            mark_complete(directory, signature, [*paths, html, report, metadata])
+        self.preprocessing[run] = read_json(metadata)
+        return paths
+
     def index(self, fasta, versions):
+        self.reference_fasta = Path(fasta)
         signature = {'fasta': fingerprint([fasta]), 'hisat2-build': versions['hisat2-build']}
         directory = self.references / 'hisat2' / digest(signature)
         directory.mkdir(parents=True, exist_ok=True)
@@ -362,24 +436,37 @@ class Pipeline:
         mark_complete(directory, signature, paths)
         return prefix
 
+    def check_bam(self, bam):
+        self.command(['samtools', 'quickcheck', bam])
+        if self.reference_fasta is not None:
+            with rnako.pysam.FastaFile(str(self.reference_fasta)) as reference, rnako.pysam.AlignmentFile(str(bam), 'rb') as alignment:
+                if dict(zip(reference.references, reference.lengths)) != dict(zip(alignment.references, alignment.lengths)):
+                    raise RuntimeError(f'{bam.name}: BAMの参照名・全contig長が選択したFASTAと一致しません。再マッピングしてください。')
+
     def mapped_run(self, row, index, versions):
         run = row['run_accession']
         self.current_run = run
         signature = {'version': PIPELINE_VERSION, 'run': run, 'layout': row['library_layout'],
                      'index': read_json(index.parent / 'complete.json'), 'hisat2': versions['hisat2'],
-                     'samtools': versions['samtools'], 'options': ['--dta', '--rg-id', run]}
+                     'samtools': versions['samtools'], 'options': mapping_options(row['library_layout']),
+                     'preprocessing': {'fastp': versions['fastp'], 'fastp_version': FASTP_VERSION,
+                                       'fastp_options': fastp_options(row['library_layout']),
+                                       'fasterq': versions['fasterq-dump'], 'fastq_version': FASTQ_VERSION}}
         directory = self.data / 'bam' / run / digest(signature)
         directory.mkdir(parents=True, exist_ok=True)
         bam = directory / (run + '.bam')
         if valid_cache(directory, signature):
-            self.command(['samtools', 'quickcheck', bam])
+            self.check_bam(bam)
+            self.preprocessing[run] = read_json(directory / 'preprocessing.json') or {}
             self.note(f'再利用 BAM: {run}')
             return bam
         self.update(stage='download', message=f'{run}: SRA取得・FASTQ変換')
-        fastqs = self.fastqs(row, versions)
+        raw = self.fastqs(row, versions)
+        fastqs = self.trimmed_fastqs(row, raw, versions)
         self.update(stage='mapping', message=f'{run}: HISAT2マッピング・BAM作成')
         partial = directory / 'mapping.partial.bam'
-        align = ['hisat2', '-p', str(self.threads), '--dta', '-x', str(index), '--rg-id', run, '--rg', 'SM:' + run]
+        align = ['hisat2', '-p', str(self.threads), *mapping_options(row['library_layout']),
+                 '-x', str(index), '--rg-id', run, '--rg', 'SM:' + run]
         align += ['-1', str(fastqs[0]), '-2', str(fastqs[1])] if len(fastqs) == 2 else ['-U', str(fastqs[0])]
         sort = ['samtools', 'sort', '-@', str(self.threads), '-o', str(partial), '-']
         self.note('$ ' + ' '.join(align) + ' | ' + ' '.join(sort))
@@ -401,11 +488,13 @@ class Pipeline:
                 raise
         if sort_code or align_code:
             raise RuntimeError(f'{run}: マッピング失敗 (HISAT2={align_code}, samtools={sort_code})')
-        self.command(['samtools', 'quickcheck', partial])
+        self.check_bam(partial)
         self.command(['samtools', 'index', '-@', self.threads, partial])
         os.replace(partial, bam)
         os.replace(Path(str(partial) + '.bai'), Path(str(bam) + '.bai'))
-        mark_complete(directory, signature, [bam, Path(str(bam) + '.bai')])
+        preprocessing = directory / 'preprocessing.json'
+        atomic_json(preprocessing, self.preprocessing[run])
+        mark_complete(directory, signature, [bam, Path(str(bam) + '.bai'), preprocessing])
         self.command(['samtools', 'flagstat', bam])
         return bam
 
@@ -494,15 +583,24 @@ class Pipeline:
                     'threads': self.threads,
                     'experiments': [{'accession': a, 'label': l, 'runs': r} for a, l, r in rows],
                     'reference': fingerprint([fasta, gtf]), 'hisat2_index': str(index),
-                    'alignment_options': '--dta; unstranded; no adapter trimming',
+                    'workflow': ['prefetch', 'vdb-validate', 'fasterq-dump --split-files', 'fastp',
+                                 'hisat2', 'samtools sort', 'samtools quickcheck', 'samtools index'],
+                    'alignment_options': '-k 100 --secondary; paired: --no-mixed --no-discordant; unstranded',
+                    'preprocessing': self.preprocessing,
                     'aggregation': 'all public runs per experiment merged; run-prefixed read names'})
         self.update(stage='analysis', message='既存のKO解析を実行中（全BAMのライブラリ計数を含みます）', progress=80)
         self.command([sys.executable, ROOT / 'rnako.py', '--gene', request['gene'], '--assembly', request['assembly'],
-                      '--samples', input_path, '--fasta', fasta, '--gtf', gtf, '--out', job_dir / 'output'])
+                      '--samples', input_path, '--fasta', fasta, '--gtf', gtf, '--out', job_dir / 'output', '--skip-region-analysis']
+                     + (['--confirm-replicates'] if request.get('confirm_replicates') is True else []))
         self.update(stage='analysis', message='候補変異を全検体で再観測し、比較表を作成中', progress=95)
         write_observations(samples, job_dir / 'output', fasta, gtf, request['gene'], self.checkpoint)
         self.update(message='エクソンごとのカバレッジとWT比較を作成中', progress=98)
         write_exon_coverage(samples, job_dir / 'output', fasta, gtf, request['gene'], self.checkpoint)
+        self.update(message='RNA領域欠損と条件付きアミノ酸配列を評価中', progress=98)
+        from region_loss import write_region_loss
+        write_region_loss(job_dir / 'output', fasta, gtf, request['gene'], self.checkpoint)
+        self.checkpoint()
+        write_conclusion(job_dir / 'output', request.get('confirm_replicates') is True)
         self.update(stage='completed', message='解析が完了しました', progress=100, status='completed')
 
 

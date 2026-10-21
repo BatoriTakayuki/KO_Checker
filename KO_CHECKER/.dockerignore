@@ -1,0 +1,8 @@
+.git
+references
+results
+workdata
+inputs
+dist
+__pycache__
+*.pyc

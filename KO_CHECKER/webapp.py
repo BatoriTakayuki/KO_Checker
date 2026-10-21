@@ -17,9 +17,13 @@ import traceback
 import uuid
 from urllib.parse import urlsplit
 
-from pipeline import Pipeline, PipelinePaused, ROOT, atomic_json, read_json, validate_request
+from pipeline import Pipeline, PipelinePaused, ROOT, TOOLS, atomic_json, read_json, validate_request
+from reporting import read_conclusion, conclusion_text
+from storage import Storage, StorageBusy
+import igv_view
 
-FILES = {'samples.csv', 'events.csv', 'junctions.csv', 'consequences.csv', 'observations.csv', 'exon_coverage.csv', 'run.json'}
+FILES = {'samples.csv', 'events.csv', 'junctions.csv', 'consequences.csv', 'observations.csv', 'exon_coverage.csv', 'run.json',
+         'region_deletions.csv', 'region_proteins.fasta', 'region_transcripts.fasta', 'gene_structure.json'}
 
 
 def now():
@@ -32,6 +36,7 @@ class Jobs:
         self.root.mkdir(parents=True, exist_ok=True)
         self.data, self.references, self.threads = data, references, threads
         self.lock = threading.RLock()
+        self.storage = Storage(data, references)
         self.queue = queue.Queue()
         self.items = {}
         self.pause_events = {}
@@ -105,6 +110,27 @@ class Jobs:
             self.queue.put(jid)
             return self.get(jid)
 
+    def storage_inventory(self):
+        with self.lock:
+            inventory = self.storage.inventory()
+            active = [{'id': j['id'], 'gene': j.get('request', {}).get('gene', ''), 'status': j['status']}
+                      for j in self.items.values() if j['status'] in ('running', 'queued')]
+            return {**inventory, 'busy': bool(active), 'active_jobs': active}
+
+    def storage_idle(self):
+        if any(j['status'] in ('running', 'queued') for j in self.items.values()):
+            raise StorageBusy('実行中・待機中の解析があるため削除できません。解析を完了するか、すべて中断してから操作してください。')
+
+    def preview_storage(self, ids):
+        with self.lock:
+            self.storage_idle()
+            return self.storage.preview(ids)
+
+    def delete_storage(self, token, confirmed):
+        with self.lock:
+            self.storage_idle()
+            return self.storage.delete(token, confirmed)
+
     def worker(self):
         while True:
             jid = self.queue.get()
@@ -145,7 +171,7 @@ def handler(jobs):
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
-            self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'")
+            self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'")
             self.end_headers()
             self.wfile.write(data)
 
@@ -155,7 +181,8 @@ def handler(jobs):
             if (origin and urlsplit(origin).netloc != self.headers.get('Host')) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
                 return self.send(403, {'error': '同一オリジンから操作してください。'})
             action = re.fullmatch(r'/api/jobs/([a-f0-9]{32})/(pause|resume)', self.path)
-            if self.path != '/api/jobs' and not action:
+            storage_action = self.path in ('/api/storage/preview', '/api/storage/delete')
+            if self.path != '/api/jobs' and not action and not storage_action:
                 return self.send(404, {'error': 'Not found'})
             if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
                 return self.send(415, {'error': 'application/jsonが必要です。'})
@@ -164,30 +191,88 @@ def handler(jobs):
                 if not 0 < length <= 16384:
                     raise ValueError('入力サイズが不正です。')
                 payload = json.loads(self.rfile.read(length))
-                if action:
+                if storage_action:
+                    if not isinstance(payload, dict):
+                        raise ValueError('入力はJSONオブジェクトにしてください。')
+                    result = (jobs.preview_storage(payload.get('ids')) if self.path.endswith('/preview')
+                              else jobs.delete_storage(payload.get('token'), payload.get('confirmed')))
+                    return self.send(200, result)
+                elif action:
                     jid, operation = action.groups()
                     if not jobs.get(jid):
                         return self.send(404, {'error': '解析が見つかりません。'})
                     job = jobs.pause(jid) if operation == 'pause' else jobs.resume(jid)
                 else:
                     job = jobs.submit(payload)
-            except (ValueError, UnicodeError) as error:
+            except StorageBusy as error:
+                return self.send(409, {'error': str(error)})
+            except (ValueError, UnicodeError, OSError) as error:
                 return self.send(400, {'error': str(error)})
             self.send(202, job)
 
         def do_GET(self):
             path = urlsplit(self.path).path
-            if path in ('/', '/app.js', '/style.css'):
+            if path in ('/', '/app.js', '/storage.js', '/structure.js', '/igv-panel.js', '/vendor/igv-3.0.0.min.js', '/style.css'):
                 file = ROOT / 'static' / ('index.html' if path == '/' else path[1:])
                 return self.send(200, file.read_bytes(), mimetypes.guess_type(file.name)[0] + '; charset=utf-8')
             if path == '/api/health':
-                names = ('prefetch', 'vdb-validate', 'fasterq-dump', 'hisat2', 'hisat2-build', 'samtools')
+                names = TOOLS
                 import rnako
                 return self.send(200, {'tools': {n: bool(shutil.which(n)) for n in names}, 'pysam': rnako.pysam is not None,
                                        'default_threads': jobs.threads, 'logical_cpus': os.cpu_count(),
                                        'disk_free_gb': round(shutil.disk_usage(jobs.root).free / 1024**3, 1)})
             if path == '/api/jobs':
                 return self.send(200, jobs.list())
+            if path == '/api/storage':
+                return self.send(200, jobs.storage_inventory())
+            igv_match = re.fullmatch(r'/api/jobs/([a-f0-9]{32})/igv/([^/]+)', path)
+            if igv_match:
+                jid, asset = igv_match.groups()
+                job = jobs.get(jid)
+                if not job or job['status'] != 'completed':
+                    return self.send(404, {'error': 'Completed analysis not found'})
+                output = jobs.root / jid / 'output'
+                try:
+                    if asset == 'config':
+                        return self.send(200, igv_view.configuration(output, jid, jobs.data, jobs.references))
+                    if asset == 'annotations.bed':
+                        return self.send(200, igv_view.annotations(output)[1].encode(), 'text/plain; charset=utf-8')
+                    files, _, _ = igv_view.assets(output, jobs.data, jobs.references)
+                    if asset not in files:
+                        return self.send(404, {'error': 'Unknown IGV asset'})
+                    file = files[asset]
+                    with file.open('rb') as handle:
+                        size = os.fstat(handle.fileno()).st_size
+                        start, end = 0, size-1
+                        partial = self.headers.get('Range')
+                        if partial:
+                            try:
+                                start, end = igv_view.byte_range(partial, size)
+                            except ValueError:
+                                self.send_response(416)
+                                self.send_header('Content-Range', f'bytes */{size}')
+                                self.send_header('Content-Length', '0')
+                                self.end_headers()
+                                return
+                        self.send_response(206 if partial else 200)
+                        self.send_header('Content-Type', 'application/octet-stream')
+                        self.send_header('Accept-Ranges', 'bytes')
+                        self.send_header('Content-Length', str(end-start+1))
+                        self.send_header('Cache-Control', 'no-store')
+                        if partial:
+                            self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+                        self.end_headers()
+                        handle.seek(start)
+                        remaining = end-start+1
+                        while remaining:
+                            chunk = handle.read(min(1024*1024, remaining))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            remaining -= len(chunk)
+                    return
+                except (ValueError, OSError, KeyError) as error:
+                    return self.send(404, {'error': str(error)})
             match = re.fullmatch(r'/api/jobs/([a-f0-9]{32})(?:/(results|log|files/[^/]+))?', path)
             if not match or not jobs.get(match[1]):
                 return self.send(404, {'error': '解析が見つかりません。'})
@@ -206,9 +291,11 @@ def handler(jobs):
             if action == 'results':
                 if job['status'] != 'completed':
                     return self.send(409, {'error': '解析はまだ完了していません。'})
-                result = {'tables': {}, 'counts': {}}
-                for name in ('samples', 'events', 'junctions', 'consequences', 'observations', 'exon_coverage'):
-                    if name == 'exon_coverage' and not (directory / 'output' / (name + '.csv')).is_file():
+                result = {'tables': {}, 'counts': {}, 'region_analysis_available': (directory / 'output' / 'region_deletions.csv').is_file()}
+                structure = directory / 'output' / 'gene_structure.json'
+                result['structure'] = read_json(structure) if structure.is_file() else None
+                for name in ('samples', 'events', 'junctions', 'consequences', 'observations', 'exon_coverage', 'region_deletions'):
+                    if name in ('exon_coverage', 'region_deletions') and not (directory / 'output' / (name + '.csv')).is_file():
                         result['tables'][name] = []
                         result['counts'][name] = 0
                         continue
@@ -222,8 +309,29 @@ def handler(jobs):
                                 rows.append(row)
                         result['tables'][name] = rows
                         result['counts'][name] = count
+                result['conclusion'] = read_conclusion(directory / 'output', job.get('request', {}).get('confirm_replicates') is True)
+                # Old CSVs used only WT_like baselines; present the current comparison
+                # without altering previously saved analysis files.
+                expression = result['conclusion']['expression']
+                ratios = {s['srx_id']: s['ratio'] for s in expression['samples']}
+                for row in result['tables']['samples']:
+                    ratio = ratios.get(row.get('srx_id'))
+                    row['expression_relative_to_wt'] = round(ratio, 5) if ratio is not None else ''
+                    row['wt_baseline_cpm'] = expression['wt_mean_cpm'] if expression['wt_mean_cpm'] is not None else ''
                 return self.send(200, result)
             name = action.removeprefix('files/')
+            if name in ('conclusion.json', 'conclusion.txt') and job['status'] == 'completed':
+                report = read_conclusion(directory / 'output', job.get('request', {}).get('confirm_replicates') is True)
+                content = (json.dumps(report, ensure_ascii=False, indent=2) + '\n' if name.endswith('.json')
+                           else conclusion_text(report)).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/octet-stream')
+                self.send_header('Content-Disposition', f'attachment; filename="{name}"')
+                self.send_header('Content-Length', str(len(content)))
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.end_headers()
+                self.wfile.write(content)
+                return
             if name in FILES and job['status'] == 'completed':
                 file = directory / 'output' / name
             elif name in ('provenance.json', 'input_samples.csv', 'pipeline.log'):

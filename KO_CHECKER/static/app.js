@@ -2,8 +2,11 @@
 const exonStatus = {no_coverage:'読み取りなし',low_coverage:'深度不足',covered:'深度基準を満たす',reference_sample:'WT比較用検体',insufficient_wt_coverage:'WTの深度不足で評価不能',insufficient_sample_coverage:'検体の深度不足で評価不能',suspected_local_depletion:'局所的な読み取り低下の疑い',no_specific_depletion:'局所低下の基準に該当せず'};
 const $ = id => document.getElementById(id);
 const statusText = {queued:'待機中',running:'解析中',paused:'中断中',completed:'完了',failed:'失敗'};
-const stages = {queued:'実行待ち',preflight:'入力確認',reference:'参照・索引',reference_download:'参照ダウンロード',reference_extract:'参照の展開',reference_index:'FASTA索引',reference_annotation:'遺伝子注釈の確認',hisat2_index:'HISAT2索引の構築',download:'SRA / FASTQ',sra_download:'SRAの取得',sra_validate:'SRAの整合性検査',fastq_convert:'FASTQへの変換',mapping:'HISAT2',merge:'SRX単位の統合',analysis:'RNA評価',completed:'完了',failed:'失敗',interrupted:'中断'};
+const stages = {queued:'実行待ち',preflight:'入力確認',reference:'参照・索引',reference_download:'参照ダウンロード',reference_extract:'参照の展開',reference_index:'FASTA索引',reference_annotation:'遺伝子注釈の確認',hisat2_index:'HISAT2索引の構築',download:'SRA / FASTQ',sra_download:'SRAの取得',sra_validate:'SRAの整合性検査',fastq_convert:'FASTQへの変換',fastq_trim:'fastp前処理・QC',mapping:'HISAT2',merge:'SRX単位の統合',analysis:'RNA評価',completed:'完了',failed:'失敗',interrupted:'中断'};
 const explanations = {
+  'Reference-like RNA coverage across candidate lost coding regions; DNA genotype unconfirmed':
+    'WT様（評価した欠損候補領域は保持）：候補領域で十分なRNA読み取りがあります。DNAの遺伝子型や遺伝子全体のWTは未確定です。',
+  'KO-like RNA region loss in a major coding transcript; DNA breakpoints and protein function unconfirmed':'KO様（RNA領域欠損）：主要なコード配列が影響を受けています。DNAの欠失境界とタンパク質機能は未確認です。',
   'Insufficient uniquely mapped exonic fragments to interpret lack of evidence':'対象遺伝子の有効断片が少なく、判断できません。',
   'Potential damaging event enriched relative to WT-labelled samples; RNA evidence only':'比較検体より多い有害候補変異、または未注釈エクソンスキップを検出しました（RNA上の証拠）。',
   'No KO-specific disruptive event demonstrated; cannot establish wild-type genotype from RNA':'KOを支持する特異的な異常を示せません。RNAだけではWTを確定できません。',
@@ -40,7 +43,8 @@ async function submit(payload) {
 }
 $('analysis-form').addEventListener('submit', event => {
   event.preventDefault(); const data=Object.fromEntries(new FormData(event.target));
-  data.pause_after_reference=$('pause-after-reference').checked;submit(data);
+  data.pause_after_reference=$('pause-after-reference').checked;
+  data.confirm_replicates=$('confirm-replicates').checked;submit(data);
 });
 async function control(operation) {
   if (!active) return;
@@ -127,22 +131,48 @@ function eventChart() {
   $('event-depth').textContent=resultData.tables.observations.filter(e=>`${e.chrom}:${e.pos_1based}:${e.ref}:${e.alt}`===key).map(e=>`${e.srx_id}: ${e.alt_reads}/${e.depth_at_anchor} ${e.coverage_status==='low_depth'?'(低深度)':''}`).join(' / ');
 }
 $('event-select').addEventListener('change',eventChart);
+function conclusion(report) {
+  if (!report) return;
+  $('conclusion-sequence').textContent=report.sequence.text;
+  $('conclusion-expression').textContent=report.expression.text;
+  $('conclusion-statistics').textContent=report.expression.test.text;
+  $('conclusion-exons').textContent=report.exons.text;
+  $('conclusion-nmd').textContent=report.nmd.text;
+  $('conclusion-overall').textContent=report.overall;
+  $('conclusion-sequence-note').textContent=report.sequence.note;
+  $('conclusion-notes').replaceChildren(...report.notes.map(note=>el('li',note)));
+  const highlights=report.exons.strongest.map(row=>el('li',
+    `${row.srx_id}: ${row.chrom}:${row.exon_start_1based}-${row.exon_end_1based} · 他エクソン補正後のWT比 ${number(Number(row.relative_depth_vs_wt)*100,1)}%`));
+  $('conclusion-exon-highlights').replaceChildren(...highlights);
+  $('conclusion-exon-highlights').hidden=!highlights.length;
+}
 function results(data, job) {
   resultData=data;const t=data.tables;
+  if (globalThis.prepareIGV) globalThis.prepareIGV(job.id);
+  if (globalThis.renderGeneStructure) globalThis.renderGeneStructure(data.structure,job.id);
   $('results').hidden=false;
+  conclusion(data.conclusion);
   $('summary').replaceChildren();
   for (const state of ['KO_like','WT_like','undetermined']) {
     const box=el('div',state);box.prepend(el('strong',t.samples.filter(s=>s.predicted_class===state).length));$('summary').append(box);
   }
   table('samples-table',t.samples,[['srx_id','入力ID'],['metadata_label','指定群'],['predicted_class','RNA評価'],['gene_unique_fragment_cpm','CPM'],['expression_relative_to_wt','WT平均比'],['coverage_warning','カバレッジ注意'],['classification_reason','判定根拠']]);
   const exons=t.exon_coverage || [];
+  const regions=t.region_deletions || [];
+  const regionEffects={noncoding_region_loss:'非コード領域の欠損',coding_annotation_unresolved:'CDSの翻訳開始を確定できず',start_region_lost:'翻訳開始領域の喪失',terminal_coding_region_loss:'コード領域末端の喪失',region_loss_frameshift:'領域欠損によるフレームシフト',region_loss_inframe:'領域欠損（インフレーム）'};
+  const regionRows=regions.map(row=>({...row,effect:regionEffects[row.effect] || row.effect,
+    evidence:row.evidence==='junction_supported'?'増加した接合の支持あり':'カバレッジのみ・接合未確認',
+    ko_support:row.ko_support==='yes'?'KO様を支持':'このモデル単独では採用せず',
+    protein_prediction_status:row.protein_prediction_status.includes('unknown_3prime_end')?'未知の3′末端を含まない既知配列の断片':row.protein_prediction_status.includes('start_lost')?'開始領域が欠損・代替開始は未予測':row.protein_prediction_status==='not_available'?'予測できず':'注釈境界での接合を仮定・実在未確認'}));
+  $('region-summary').textContent=regions.length?`${regions.length}件の転写産物モデル。KO推定を支持する検体: ${[...new Set(regions.filter(r=>r.ko_support==='yes').map(r=>r.srx_id))].join(', ') || 'なし'}。配列と機能への影響は条件付き予測です。`:'領域欠損モデルはありません。過去の解析は同じ条件で再実行すると追加できます。';
+  table('regions-table',regionRows,[['srx_id','入力ID'],['transcript_id','転写産物'],['lost_exons','欠損エクソン番号'],['lost_regions','欠損候補領域'],['maximum_normalized_depth_ratio','欠損領域の最大WT比（ライブラリ補正）'],['evidence','接合の証拠'],['junction_support','増加した接合の支持断片'],['ko_support','KO様を支持'],['effect','予測影響'],['deleted_coding_nt','失われるCDS塩基数'],['coding_loss_fraction','CDS欠損率'],['reference_protein','参照アミノ酸配列'],['predicted_protein','条件付き予測アミノ酸配列／断片'],['protein_prediction_status','予測の範囲'],['nmd_prediction','モデル上のNMD'],['assumptions','仮定・未確定事項']]);
   const percent=value=>`${number(Number(value)*100,1)}%`;
-  const exonRows=exons.map(row=>({...row,region:`${row.chrom}:${row.exon_start_1based}-${row.exon_end_1based}`,covered_percent:percent(row.covered_fraction),sufficient_percent:percent(row.sufficient_depth_fraction)}));
-  table('exons-table',exonRows,[['srx_id','入力ID'],['metadata_label','指定群'],['region','エクソン座標 (1-based)'],['coverage_status','読み取り状態'],['comparison_status','WT比較の評価'],['mean_depth','平均深度'],['overlapping_fragments','重なる断片数'],['min_depth','最低深度'],['covered_percent','読まれた塩基'],['sufficient_percent','深度10以上の塩基'],['relative_depth_vs_wt','他エクソン補正後のWT比'],['wt_reference_samples','比較に使用したWT数'],['skipping_junction_fragments','スキップ接合支持断片'],['longest_zero_depth_region','最長ゼロ深度区間'],['transcript_exons','転写産物・エクソン番号']]);
+  const exonRows=exons.map(row=>({...row,region:`${row.chrom}:${row.exon_start_1based}-${row.exon_end_1based}`,region_loss_status:row.region_loss_status==='suspected_region_loss'?'RNA領域欠損の疑い':'',covered_percent:percent(row.covered_fraction),sufficient_percent:percent(row.sufficient_depth_fraction)}));
+  table('exons-table',exonRows,[['srx_id','入力ID'],['metadata_label','指定群'],['region','エクソン座標 (1-based)'],['region_loss_status','RNA領域欠損評価'],['region_normalized_depth_ratio','領域欠損評価のWT比（ライブラリ補正）'],['coverage_status','読み取り状態'],['comparison_status','従来の他エクソン補正評価'],['mean_depth','平均深度'],['overlapping_fragments','重なる断片数'],['min_depth','最低深度'],['covered_percent','読まれた塩基'],['sufficient_percent','深度10以上の塩基'],['relative_depth_vs_wt','他エクソン補正後のWT比'],['wt_reference_samples','比較に使用したWT数'],['skipping_junction_fragments','スキップ接合支持断片'],['longest_zero_depth_region','最長ゼロ深度区間'],['transcript_exons','転写産物・エクソン番号']]);
   const koExons=exons.filter(row=>row.metadata_label==='KO');
   const suspected=koExons.filter(row=>row.comparison_status==='suspected_local_depletion').length;
   const insufficient=koExons.filter(row=>row.comparison_status.startsWith('insufficient_')).length;
-  $('exon-summary').textContent=exons.length?`KO群の検体×エクソン ${koExons.length}件中、局所的な読み取り低下の疑い ${suspected}件、深度不足で評価不能 ${insufficient}件。RNA評価（KO_like等）とは別の補助所見です。`:'この解析にはエクソン比較データがありません。「同じ条件で再実行」で追加できます。';
+  $('exon-summary').textContent=exons.length?`RNA領域欠損の疑い ${koExons.filter(r=>r.region_loss_status==='suspected_region_loss').length}件。従来の他エクソン補正では局所低下 ${suspected}件、深度条件で保留 ${insufficient}件。KO様への採用根拠は下の領域欠損モデルを参照してください。`:'この解析にはエクソン比較データがありません。「同じ条件で再実行」で追加できます。';
   const cpm=t.samples.map(s=>({id:s.srx_id,group:s.metadata_label,value:s.gene_unique_fragment_cpm}));
   bars('cpm-chart',cpm,Math.max(1,...cpm.map(r=>Number(r.value))));
   const ratios=t.samples.map(s=>({id:s.srx_id,group:s.metadata_label,value:s.expression_relative_to_wt}));
@@ -162,7 +192,7 @@ function results(data, job) {
   table('effects-table',t.consequences,[['srx_id','入力ID'],['event_id','イベントID'],['transcript_id','転写産物'],['effect','影響'],['first_changed_aa','最初の変化 (aa)'],['reference_protein','参照タンパク質'],['predicted_protein','予測タンパク質'],['stop_to_last_junction_nt','終止→最終接合 (nt)'],['nmd_prediction','NMD予測']]);
   $('table-limit').textContent=Object.entries(data.counts).map(([name,n])=>`${name}: ${n}件`).join(' / ')+'。各表は先頭1,000件まで表示します。全データはCSVから取得できます。';
   $('downloads').replaceChildren();
-  for (const name of ['samples.csv','events.csv','junctions.csv','consequences.csv','observations.csv',...(exons.length?['exon_coverage.csv']:[]),'run.json','provenance.json','input_samples.csv','pipeline.log']) {
+  for (const name of ['conclusion.txt','conclusion.json','samples.csv','events.csv','junctions.csv','consequences.csv','observations.csv',...(exons.length?['exon_coverage.csv']:[]),...(data.region_analysis_available ? ['region_deletions.csv','region_proteins.fasta','region_transcripts.fasta']:[]),...(data.structure?['gene_structure.json']:[]),'run.json','provenance.json','input_samples.csv','pipeline.log']) {
     const link=el('a',name);link.href=`/api/jobs/${job.id}/files/${name}`;link.download=name;$('downloads').append(link);
   }
 }
@@ -189,7 +219,7 @@ async function refresh() {
     $('job-message').textContent=job.message;$('progress').value=job.progress;
     $('percent').textContent=`${job.progress}%（工程の目安）`;$('stage').textContent=stages[job.stage]||job.stage;
     $('job-error').textContent=job.status==='failed'?'処理が停止しました。ログで原因を確認し、解消後に再実行してください。':'';
-    $('retry').hidden=job.status!=='failed';$('log-download').href=`/api/jobs/${job.id}/files/pipeline.log`;
+    $('retry').hidden=!['failed','completed'].includes(job.status);$('log-download').href=`/api/jobs/${job.id}/files/pipeline.log`;
     if ($('log-panel').open || job.status==='failed') {
       const log=await api(`/api/jobs/${selected}/log`);if(selected===active)$('log').textContent=log.text||'ログはまだありません。';
     }

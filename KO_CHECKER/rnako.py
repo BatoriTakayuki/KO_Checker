@@ -633,7 +633,9 @@ def run(args):
         sid = s["srx_id"]
         enriched = {r["event_id"] for r in by_sample_events[sid] if r["comparison_status"] == "enriched_vs_comparators" and float(r["local_alt_fraction"]) >= args.min_ko_af}
         detrimental = {r["event_id"] for r in effect_rows if r["srx_id"] == sid and r["effect"] in damaging}
-        novel_skip = {r["event_id"] for r in junction_rows if r["srx_id"] == sid and r["skipped_transcripts"] and r["comparison_status"] == "enriched_vs_comparators" and float(r["local_skip_fraction"]) >= args.min_ko_af and r["annotation_status"] == "unannotated"}
+        coding_skips = {r['event_id'] for r in effect_rows if r['srx_id'] == sid
+                        and r['effect'] in ('exon_skip_frameshift', 'exon_skip_inframe', 'start_region_skipped')}
+        novel_skip = {r["event_id"] for r in junction_rows if r["srx_id"] == sid and r["event_id"] in coding_skips and r["comparison_status"] == "enriched_vs_comparators" and float(r["local_skip_fraction"]) >= args.min_ko_af and r["annotation_status"] == "unannotated"}
         ko_evidence[sid] = enriched & detrimental
         ko_skip_evidence[sid] = novel_skip
         if s["coverage_warning"]:
@@ -668,7 +670,8 @@ def run(args):
         if (checked or normal_splicing) and all(alt/depth < args.min_af for depth, alt in checked):
             s["predicted_class"] = "WT_like"
             s["classification_reason"] = "Reference bases at covered KO-like variant site(s) and/or annotated junction support; other lesions remain possible"
-    candidate_wt = [s for s in sample_rows if s["metadata_label"] == "WT" and s["predicted_class"] == "WT_like" and s["gene_unique_fragment_cpm"] != ""]
+    # Expression comparison is independent of sequence-based classification.
+    candidate_wt = [s for s in sample_rows if s["metadata_label"] == "WT" and s["gene_unique_fragment_cpm"] != ""]
     baseline = sum(s["gene_unique_fragment_cpm"] for s in candidate_wt)/len(candidate_wt) if candidate_wt else None
     for s in sample_rows:
         if baseline and baseline > 0:
@@ -680,11 +683,21 @@ def run(args):
     effect_cols = ["event_id","srx_id","metadata_label","gene","transcript_id","gene_biotype","effect","reference_protein","predicted_protein","first_changed_aa","stop_codon_cdna_1based","stop_to_last_junction_nt","nmd_prediction","protein_prediction_status"]
     for name, rows, cols in (("samples.csv",sample_rows,sample_cols),("events.csv",event_rows,event_cols),("junctions.csv",junction_rows,junction_cols),("consequences.csv",effect_rows,effect_cols)):
         write_csv(out_dir/name,rows,cols)
-    manifest = {"version":"0.1.1","assembly":args.assembly,"gene":args.gene,"fasta":str(fasta_path),"gtf":str(gtf),
+    manifest = {"version":"0.1.2","assembly":args.assembly,"gene":args.gene,"fasta":str(fasta_path),"gtf":str(gtf),
+                "expression_baseline":"all_WT_labelled_samples_with_valid_library",
+                "confirmed_replicates":getattr(args, 'confirm_replicates', False),
                 "thresholds":{"min_alt":args.min_alt,"min_af":args.min_af,"min_junction":args.min_junction,"min_delta":args.min_delta,"min_gene_fragments":args.min_gene_fragments,"min_event_depth":args.min_event_depth,"min_ko_af":args.min_ko_af,"min_mapq":args.min_mapq,"min_bq":args.min_bq},
                 "notes":["RNA evidence is not a DNA KO validation","CPM counts uniquely mapped primary fragments, not TPM","Variant fractions are local and not whole-mRNA fractions","Predicted proteins model one event at a time"]}
     (out_dir/"run.json").write_text(json.dumps(manifest,indent=2,ensure_ascii=False)+"\n")
     fa.close()
+    if not getattr(args, 'skip_region_analysis', False):
+        from pipeline import write_exon_coverage, write_observations
+        from region_loss import write_region_loss
+        write_observations(samples, out_dir, fasta_path, gtf, args.gene)
+        write_exon_coverage(samples, out_dir, fasta_path, gtf, args.gene)
+        write_region_loss(out_dir, fasta_path, gtf, args.gene)
+    from reporting import write_conclusion
+    write_conclusion(out_dir, getattr(args, 'confirm_replicates', False))
     print(f"Finished: {out_dir}")
 
 
@@ -693,6 +706,9 @@ def parser():
     p.add_argument("--gene",required=True,help="Gene symbol or stable gene ID")
     p.add_argument("--assembly",choices=REFERENCE,default="mm10")
     p.add_argument("--samples",help="CSV columns: srx_id,metadata_label,bam_path (path optional)")
+    p.add_argument('--skip-region-analysis', action='store_true', help=argparse.SUPPRESS)
+    p.add_argument('--confirm-replicates', action='store_true',
+                   help='Confirm independent biological replicates and exchangeable, comparable conditions for an exploratory CPM permutation test')
     for label in ("wt","ko","kd","oe"):
         p.add_argument("--"+label,default="",help="Comma-separated SRX IDs")
     p.add_argument("--bam-pattern",default="/data/Analysis/{srx}/{srx}.bam")

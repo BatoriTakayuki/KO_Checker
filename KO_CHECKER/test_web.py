@@ -141,7 +141,7 @@ class PipelineTests(unittest.TestCase):
                     archive = Path(args[-1]); archive.mkdir(parents=True, exist_ok=True)
                     (archive / 'SRR1.sra').write_bytes(b'sra')
                 if args[0] == 'fasterq-dump':
-                    directory = Path(args[args.index('-O')+1])
+                    directory = Path(args[args.index('--outdir')+1])
                     for suffix in ('_1', '_2'):
                         (directory / ('SRR1'+suffix+'.fastq')).write_text('@r\nAC\n+\nII\n')
             with patch.object(engine, 'command', side_effect=command):
@@ -168,7 +168,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_fastq_accepts_direct_and_nested_prefetch_archives(self):
         for nested in (False, True):
-            for extension in ('.sra', '.sralite'):
+            for extension in ('.sra', '.sralite', ''):
                 with self.subTest(nested=nested, extension=extension), tempfile.TemporaryDirectory() as temp:
                     engine = self.make_pipeline(temp)
                     destination = engine.data / 'sra' / 'SRR1'
@@ -183,7 +183,7 @@ class PipelineTests(unittest.TestCase):
                             self.assertEqual(args[1], archive)
                         elif args[0] == 'fasterq-dump':
                             self.assertEqual(args[1], archive)
-                            directory = Path(args[args.index('-O') + 1])
+                            directory = Path(args[args.index('--outdir') + 1])
                             (directory / 'SRR1.fastq').write_text('@r\nAC\n+\nII\n')
                     with patch.object(engine, 'command', side_effect=command):
                         result = engine.fastqs({'run_accession':'SRR1','library_layout':'SINGLE'}, {'fasterq-dump':'v1'})
@@ -197,10 +197,12 @@ class PipelineTests(unittest.TestCase):
             index.parent.mkdir()
             atomic_json(index.parent / 'complete.json', {'reference': 'mm10'})
             row = {'run_accession': 'SRR1', 'library_layout': 'SINGLE'}
-            versions = {'hisat2': 'v1', 'samtools': 'v2'}
+            versions = {'hisat2': 'v1', 'samtools': 'v2', 'fastp': 'fp1', 'fasterq-dump': 'fq1'}
             signature = {'version': pipeline.PIPELINE_VERSION, 'run': 'SRR1', 'layout': 'SINGLE',
                          'index': {'reference': 'mm10'}, 'hisat2': 'v1', 'samtools': 'v2',
-                         'options': ['--dta', '--rg-id', 'SRR1']}
+                         'options': ['-k', '100', '--secondary'],
+                         'preprocessing': {'fastp': 'fp1', 'fastp_version': pipeline.FASTP_VERSION,
+                                           'fastp_options': [], 'fasterq': 'fq1', 'fastq_version': pipeline.FASTQ_VERSION}}
             directory = engine.data / 'bam' / 'SRR1' / pipeline.digest(signature)
             directory.mkdir(parents=True)
             bam = directory / 'SRR1.bam'; bam.write_bytes(b'bam')
@@ -220,9 +222,11 @@ class PipelineTests(unittest.TestCase):
             aligner = MagicMock(); aligner.wait.return_value = 1; aligner.poll.return_value = 1
             sorter = MagicMock(); sorter.wait.return_value = 0
             with patch.object(engine, 'fastqs', return_value=[Path(temp)/'read.fastq']), \
+                 patch.object(engine, 'trimmed_fastqs', return_value=[Path(temp)/'read.trim.fastq.gz']), \
                  patch('pipeline.subprocess.Popen', side_effect=[aligner,sorter]), \
                  self.assertRaisesRegex(RuntimeError, 'HISAT2=1'):
-                engine.mapped_run({'run_accession':'SRR1','library_layout':'SINGLE'},index,{'hisat2':'v1','samtools':'v2'})
+                engine.mapped_run({'run_accession':'SRR1','library_layout':'SINGLE'},index,
+                                  {'hisat2':'v1','samtools':'v2','fastp':'fp1','fasterq-dump':'fq1'})
             self.assertEqual(list(engine.data.rglob('complete.json')), [])
 
     def test_observation_export_distinguishes_zero_alt_and_no_depth(self):
@@ -263,7 +267,7 @@ class PipelineTests(unittest.TestCase):
                  patch.object(engine,'mapped_run',side_effect=mapped), \
                  patch.object(engine,'sample_bam',side_effect=lambda a,b,v:b[0]) as aggregate, \
                  patch.object(engine,'command') as command, patch('pipeline.write_observations'), \
-                 patch('pipeline.write_exon_coverage') as coverage:
+                 patch('pipeline.write_exon_coverage') as coverage, patch('region_loss.write_region_loss'), patch('pipeline.write_conclusion') as conclusion:
                 engine.run(validate_request({'gene':'Phf3','wt':'SRX1','ko':'SRX2'}),job)
             self.assertEqual(len(aggregate.call_args_list[0].args[1]), 2)
             self.assertEqual(len(aggregate.call_args_list[1].args[1]), 1)
@@ -274,6 +278,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual([s['metadata_label'] for s in samples],['WT','KO'])
             self.assertEqual(states[-1]['status'],'completed')
             coverage.assert_called_once()
+            conclusion.assert_called_once_with(job / 'output', False)
             self.assertEqual(json.loads((job/'provenance.json').read_text())['threads'],engine.threads)
             self.assertEqual(len(json.loads((job/'provenance.json').read_text())['experiments']),2)
 
@@ -309,6 +314,21 @@ class WebTests(unittest.TestCase):
                         result=json.load(response)
                         self.assertEqual(result['tables']['samples'][0]['predicted_class'],'WT_like')
                         self.assertEqual(result['counts']['exon_coverage'],1)
+                        self.assertIn('conclusion', result)
+                        self.assertIsNone(result['structure'])
+                    diagram={'version':1,'gene':'Phf3','transcripts':[]}
+                    atomic_json(Path(temp)/'jobs'/job['id']/'output'/'gene_structure.json',diagram)
+                    with urllib.request.urlopen(base+'/api/jobs/'+job['id']+'/results') as response:
+                        self.assertEqual(json.load(response)['structure'],diagram)
+                    with urllib.request.urlopen(base+'/api/jobs/'+job['id']+'/files/gene_structure.json') as response:
+                        self.assertEqual(json.load(response),diagram)
+                    with urllib.request.urlopen(base+'/structure.js') as response:
+                        self.assertEqual(response.status,200)
+                    for name in ('conclusion.json', 'conclusion.txt'):
+                        with urllib.request.urlopen(base+'/api/jobs/'+job['id']+'/files/'+name) as response:
+                            self.assertEqual(response.status, 200)
+                            self.assertIn('attachment', response.headers['Content-Disposition'])
+                            self.assertTrue(response.read())
                     with urllib.request.urlopen(base+'/api/jobs/'+job['id']+'/files/exon_coverage.csv') as response:
                         self.assertIn(b'SRX1',response.read())
                     (Path(temp)/'jobs'/job['id']/'output'/'exon_coverage.csv').unlink()

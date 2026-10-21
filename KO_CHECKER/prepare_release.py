@@ -7,13 +7,15 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent
 PUBLISH_FILES = (
+    'igv_view.py', 'test_igv.py', 'static/igv-panel.js',
+    'static/vendor/igv-3.0.0.min.js', 'static/vendor/igv-LICENSE.txt',
     'README.md', 'CHANGELOG.md', 'docs/analysis.md', 'docs/github-sharing.md',
     '.gitignore', '.dockerignore', '.gitattributes', '.env.example',
     '.github/workflows/tests.yml',
     'Dockerfile', 'compose.yaml', 'start.bat', 'start.ps1', 'requirements.txt', 'example_samples.csv',
-    'rnako.py', 'pipeline.py', 'webapp.py', 'transfers.py',
-    'static/index.html', 'static/style.css', 'static/app.js',
-    'test_core.py', 'test_integration.py', 'test_web.py', 'test_resume.py', 'prepare_release.py',
+    'rnako.py', 'pipeline.py', 'webapp.py', 'transfers.py', 'reporting.py', 'storage.py', 'region_loss.py', 'test_region_loss.py', 'structure.py', 'test_structure.py', 'static/structure.js',
+    'static/index.html', 'static/style.css', 'static/app.js', 'static/storage.js',
+    'test_core.py', 'test_integration.py', 'test_web.py', 'test_resume.py', 'test_reporting.py', 'test_workflow.py', 'test_storage.py', 'prepare_release.py',
 )
 
 

@@ -10,6 +10,59 @@ from pipeline import write_exon_coverage, atomic_json, PipelinePaused
 
 @unittest.skipIf(rnako.pysam is None, 'pysam required')
 class BamIntegrationTests(unittest.TestCase):
+    def test_utr_skip_keeps_sequence_undetermined_but_reports_expression_loss(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sequence = 'CCCGGG' + 'N' * 14 + 'CCCAAC' + 'N' * 14 + 'ATGAAATAA' + 'N' * 51 + 'A' * 20
+            fasta = root / 'reference.fa'
+            fasta.write_text('>chr1\n' + sequence + '\n')
+            attributes = 'gene_id "G1"; gene_name "Test"; transcript_id "T1"; gene_type "protein_coding";'
+            gtf = root / 'reference.gtf'
+            with gtf.open('w') as handle:
+                for start, end in ((1, 6), (21, 26), (41, 49)):
+                    handle.write(f'chr1\ttest\texon\t{start}\t{end}\t.\t+\t.\t{attributes}\n')
+                handle.write(f'chr1\ttest\tCDS\t41\t46\t.\t+\t0\t{attributes}\n')
+            for sid, count, cigar, bases in (
+                ('WT', 120, '6M14N6M14N9M', sequence[:6] + sequence[20:26] + sequence[40:49]),
+                ('KO', 30, '6M34N9M', sequence[:6] + sequence[40:49]),
+            ):
+                path = root / f'{sid}.bam'
+                with rnako.pysam.AlignmentFile(str(path), 'wb', header={
+                    'HD': {'VN': '1.6', 'SO': 'coordinate'},
+                    'SQ': [{'SN': 'chr1', 'LN': len(sequence)}],
+                }) as bam:
+                    for i in range(count + 480):
+                        read = rnako.pysam.AlignedSegment()
+                        read.query_name = f'{sid}_{i}'
+                        read.query_sequence = bases if i < count else 'A' * 20
+                        read.reference_id = 0
+                        read.reference_start = 0 if i < count else 100
+                        read.mapping_quality = 60
+                        read.cigarstring = cigar if i < count else '20M'
+                        read.query_qualities = rnako.pysam.qualitystring_to_array('I' * len(read.query_sequence))
+                        read.set_tag('NH', 1)
+                        bam.write(read)
+                rnako.pysam.index(str(path))
+            samples = root / 'samples.csv'
+            with samples.open('w', newline='') as handle:
+                writer = csv.writer(handle)
+                writer.writerow(['srx_id', 'metadata_label', 'bam_path'])
+                for sid in ('WT', 'KO'):
+                    writer.writerow([sid, sid, root / f'{sid}.bam'])
+            args = rnako.parser().parse_args(['--gene', 'Test', '--samples', str(samples),
+                '--fasta', str(fasta), '--gtf', str(gtf), '--out', str(root / 'out')])
+            rnako.run(args)
+            with (root / 'out' / 'samples.csv').open() as handle:
+                rows = {row['srx_id']: row for row in csv.DictReader(handle)}
+            self.assertEqual(rows['WT']['predicted_class'], 'undetermined')
+            self.assertEqual(rows['KO']['predicted_class'], 'undetermined')
+            self.assertAlmostEqual(float(rows['KO']['expression_relative_to_wt']), (30 / 510) / (120 / 600), places=5)
+            from reporting import read_conclusion
+            report = read_conclusion(root / 'out')
+            self.assertGreater(report['expression']['decrease_percent'], 70)
+            self.assertEqual(report['nmd']['status'], 'unresolved')
+            self.assertEqual(report['expression']['test']['status'], 'insufficient_replicates')
+
     def test_splice_classification_is_independent_of_sample_order(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
