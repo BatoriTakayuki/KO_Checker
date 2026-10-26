@@ -106,7 +106,7 @@ class Jobs:
             if sum(j['status'] in ('queued', 'running') for j in self.items.values()) >= 10:
                 raise ValueError('待機中の解析が多すぎます。')
             self.pause_events[jid] = threading.Event()
-            self.update(jid, status='queued', pause_requested=False, message='再開待ち。完了済みデータを再利用します。')
+            self.update(jid, status='queued', pause_requested=False, message='再開待ちです。完了済みデータを再利用します。')
             self.queue.put(jid)
             return self.get(jid)
 

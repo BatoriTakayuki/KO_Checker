@@ -216,7 +216,7 @@ async function refresh() {
     $('job-title').textContent=`${job.request.gene} / ${job.request.assembly}${job.threads ? ` / ${job.threads}スレッド` : ''}`;
     $('status').textContent=job.pause_requested?'中断処理中':statusText[job.status];$('status').className=`badge ${job.status}`;
     progressDetails(job);
-    $('job-message').textContent=job.message;$('progress').value=job.progress;
+    $('job-message').textContent=job.message==='再開待ち。完了済みデータを再利用します。'?'再開待ちです。完了済みデータを再利用します。':job.message;$('progress').value=job.progress;
     $('percent').textContent=`${job.progress}%（工程の目安）`;$('stage').textContent=stages[job.stage]||job.stage;
     $('job-error').textContent=job.status==='failed'?'処理が停止しました。ログで原因を確認し、解消後に再実行してください。':'';
     $('retry').hidden=!['failed','completed'].includes(job.status);$('log-download').href=`/api/jobs/${job.id}/files/pipeline.log`;
@@ -236,7 +236,11 @@ async function init() {
     const health=await api('/api/health');
     if (health.default_threads) $('threads').placeholder=`既定値: ${health.default_threads}スレッド（空欄可）`;
     const missing=Object.entries(health.tools).filter(([,ok])=>!ok).map(([name])=>name);if(!health.pysam)missing.push('pysam');
-    $('health').textContent=missing.length?`解析環境が不足しています: ${missing.join(', ')}。Dockerで起動してください。画面の閲覧は可能です。`:`解析環境は準備済みです · 結果保存先の空き容量 ${health.disk_free_gb} GB · 解析は1件ずつ実行します`;
+    if (missing.length) {
+      $('health').textContent=`解析環境が不足しています: ${missing.join(', ')}。Dockerで起動してください。画面の閲覧は可能です。`;
+    } else {
+      $('health').replaceChildren('解析環境は準備済みです\n結果保存先の空き容量：', el('strong', `${health.disk_free_gb} GB`), '\n解析は1件ずつ実行します');
+    }
     $('health').classList.toggle('warning',!!missing.length);
   } catch(err) {$('health').textContent=`環境確認に失敗しました: ${err.message}`;}
   if (/^#[a-f0-9]{32}$/.test(location.hash)) choose(location.hash.slice(1));

@@ -42,8 +42,9 @@
     if (!entries.length) {const row=el('tr'),cell=el('td','管理対象の保存データはありません。');cell.colSpan=5;row.append(cell);body.append(row);}
     target.append(body);changed();
     $('storage-warning').textContent=data.warnings.join(' ');
-    $('storage-status').textContent=`管理対象の合計 ${bytes(data.total_bytes)} · 保存先の空き容量 ${bytes(data.free_bytes)}`+
-      (data.busy?' · 実行中・待機中の解析があるため削除できません。完了するか、すべて中断してから容量を更新してください。':'');
+    $('storage-status').replaceChildren('管理対象の合計： ', el('strong',bytes(data.total_bytes)),
+      '\n保存先の空き容量 ：', el('strong',bytes(data.free_bytes)));
+    if (data.busy) $('storage-status').append('\n実行中・待機中の解析があるため削除できません。完了するか、すべて中断してから容量を更新してください。');
   }
   async function load() {
     busy=true;buttons();$('storage-status').textContent='保存データの容量を確認中…';$('storage-error').textContent='';
