@@ -212,7 +212,7 @@ def handler(jobs):
 
         def do_GET(self):
             path = urlsplit(self.path).path
-            if path in ('/', '/app.js', '/storage.js', '/structure.js', '/igv-panel.js', '/vendor/igv-3.0.0.min.js', '/style.css'):
+            if path in ('/', '/app.js', '/storage.js', '/structure.js', '/igv-panel.js', '/vendor/igv-3.0.0.min.js', '/style.css', '/stem-cell-boys.png'):
                 file = ROOT / 'static' / ('index.html' if path == '/' else path[1:])
                 return self.send(200, file.read_bytes(), mimetypes.guess_type(file.name)[0] + '; charset=utf-8')
             if path == '/api/health':
