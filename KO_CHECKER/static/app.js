@@ -214,7 +214,7 @@ async function refresh() {
     currentJob=job;
     $('job-id').textContent=`ANALYSIS · ${job.id.slice(0,8)}`;
     $('job-title').textContent=`${job.request.gene} / ${job.request.assembly}${job.threads ? ` / ${job.threads}スレッド` : ''}`;
-    $('status').textContent=job.pause_requested?'中断処理中':statusText[job.status];$('status').className=`badge ${job.status}`;
+    $('status').textContent=job.pause_requested?'中断処理中':statusText[job.status];$('status').className=`badge ${job.status}${job.pause_requested?' pause-requested':''}`;
     progressDetails(job);
     $('job-message').textContent=job.message==='再開待ち。完了済みデータを再利用します。'?'再開待ちです。完了済みデータを再利用します。':job.message;$('progress').value=job.progress;
     $('percent').textContent=`${job.progress}%（工程の目安）`;$('stage').textContent=stages[job.stage]||job.stage;

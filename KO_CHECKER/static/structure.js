@@ -10,7 +10,7 @@
     return node;
   }
   function line(root,x1,y1,x2,y2,attrs={}) {root.append(svg('line',{x1,y1,x2,y2,stroke:'#a6b5b0','stroke-width':1.4,...attrs}));}
-  function text(root,x,y,value,attrs={}) {root.append(svg('text',{x,y,fill:palette.ink,'font-size':12,...attrs},value));}
+  function text(root,x,y,value,attrs={}) {root.append(svg('text',{x,y,fill:palette.ink,'font-family':'Noto Sans JP, sans-serif','font-size':12,...attrs},value));}
   function interactive(node,title,detail,select) {
     node.append(svg('title',{},title));node.setAttribute('tabindex','0');node.setAttribute('role','button');node.setAttribute('aria-label',title);
     node.style.cursor='pointer';
@@ -49,7 +49,7 @@
     const axis=layout(tx,compressed),height=710;
     const root=svg('svg',{xmlns:ns,viewBox:`0 0 ${axis.width} ${height}`,width:axis.width,height,
       role:'img','aria-label':`${source.gene} ${tx.id} WTとKOのエクソン・イントロン構造`,
-      'font-family':'Segoe UI, Yu Gothic, Meiryo, sans-serif'});
+      'font-family':'Noto Sans JP, sans-serif'});
     root.append(svg('rect',{width:axis.width,height,fill:'#fff'}));
     const defs=svg('defs'),pattern=svg('pattern',{id:'region-loss-hatch',width:6,height:6,patternUnits:'userSpaceOnUse'});
     pattern.append(svg('rect',{width:6,height:6,fill:'#fff1f1'}),svg('path',{d:'M-1 1L5 7M1 -1L7 5',stroke:'#d17880','stroke-width':1}));defs.append(pattern);root.append(defs);
@@ -78,7 +78,7 @@
       }
       for(const exon of axis.boxes){
         const loss=removed.has(exon.number),row=coverage(source,sample,exon),group=svg('g');
-        group.append(svg('rect',{x:exon.x,y:y-7,width:exon.width,height:14,rx:1,fill:loss?'url(#region-loss-hatch)':palette.utr,stroke:loss?palette.loss:color,'stroke-dasharray':loss?'4 3':'none'}));
+        group.append(svg('rect',{x:exon.x,y:y-7,width:exon.width,height:14,fill:loss?'url(#region-loss-hatch)':palette.utr,stroke:loss?palette.loss:color,'stroke-dasharray':loss?'4 3':'none'}));
         const coding=(!loss&&Array.isArray(trackModel?.coding_segments))?trackModel.coding_segments
           .map(c=>({start_1based:Math.max(c.start_1based,exon.start_1based),end_1based:Math.min(c.end_1based,exon.end_1based)}))
           .filter(c=>c.start_1based<=c.end_1based):exon.cds;
