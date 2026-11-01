@@ -1,16 +1,20 @@
 """SRX -> prefetch -> fasterq-dump -> fastp -> HISAT2 BAM -> RNA evidence."""
 from __future__ import annotations
 
+import contextlib
 import csv
 import hashlib
+import itertools
 import json
 import os
 from pathlib import Path
+import queue
 import re
 import signal
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -28,6 +32,20 @@ TOOLS = ('prefetch', 'vdb-validate', 'fasterq-dump', 'fastp', 'hisat2', 'hisat2-
 ACCESSION = re.compile(r"(?:SRX|ERX|DRX)[0-9]+\Z")
 RUN = re.compile(r"(?:SRR|ERR|DRR)[0-9]+\Z")
 ROOT = Path(__file__).resolve().parent
+GIB = 1024 ** 3
+# RAM needed per run from FASTQ conversion until its BAM is saved: uncompressed FASTQ is about 9x a
+# normal .sra and 12x an SRA Lite archive, plus fastp output and the sort's temporary files.
+RAM_PER_ARCHIVE_BYTE = 15
+RAM_MARGIN = 4 * GIB
+# Once the raw FASTQ is deleted, mapping holds the trimmed .fastq.gz, two uncompressed read blocks and the
+# sort's temporary files plus the BAM (with -k 100 about 1-1.5x the trimmed files).
+RAM_PER_TRIMMED_BYTE = 4
+RAM_MAPPING_MARGIN = 8 * GIB
+# HISAT2 2.2.1 with -k 100 keeps growing while it runs (~10 GiB after 4M read pairs, >200 GiB for a whole
+# 60-80M pair library in TE_Checker, which the kernel killed). It is started afresh for each block of reads.
+# Within a run HISAT2 reuses splice sites found in earlier reads, so a few spliced reads may align differently.
+MAPPING_CHUNK_READS = 4_000_000
+HISAT2_MEMORY_FLOOR = 32 * GIB
 
 
 def fastp_options(layout):
@@ -39,6 +57,145 @@ def mapping_options(layout):
     if layout == 'PAIRED':
         options += ['--no-mixed', '--no-discordant']
     return options
+
+
+def available_memory():
+    """Bytes the container may still use (cgroup limit or MemAvailable), or None if unknown."""
+    values = []
+    try:
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            if line.startswith('MemAvailable:'):
+                values.append(int(line.split()[1]) * 1024)
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        limit = Path('/sys/fs/cgroup/memory.max').read_text().strip()
+        used = int(Path('/sys/fs/cgroup/memory.current').read_text().strip())
+        if limit != 'max':
+            values.append(int(limit) - used)
+    except (OSError, ValueError):
+        pass
+    return min(values) if values else None
+
+
+def sort_resources(threads, memory=None):
+    """samtools sort threads and per-thread memory (MiB) that fit beside HISAT2 (a quarter of what is available)."""
+    threads = max(1, min(int(threads), 8))
+    if memory is None:
+        return threads, 768
+    per_thread = int(memory / 4 / (threads + 1) / 1024**2)
+    while threads > 1 and per_thread < 256:
+        threads -= 1
+        per_thread = int(memory / 4 / (threads + 1) / 1024**2)
+    return threads, max(128, min(768, per_thread))
+
+
+def hisat2_memory_limit(memory, workers):
+    """Address-space cap for one HISAT2 process, so a runaway run fails alone instead of exhausting the server."""
+    if memory is None or not shutil.which('prlimit'):
+        return None
+    return max(HISAT2_MEMORY_FLOOR, memory // max(1, workers))
+
+
+class ReadChunks:
+    """Splits gzip FASTQ (one file, or the two mates) into blocks of `size` reads for successive HISAT2 runs.
+
+    The hisat2 wrapper accepts only regular files, so each block is written uncompressed. A background thread
+    writes the next block while HISAT2 maps the current one (two sets of files take turns).
+    """
+    BLOCK_LINES = 40000
+
+    def __init__(self, fastqs, folder, size=None):
+        self.size = size or MAPPING_CHUNK_READS
+        self.fastqs = fastqs
+        self.sets = [[Path(folder) / f'chunk{s}_{n}.fq' for n in range(1, len(fastqs) + 1)] for s in (0, 1)]
+        self.readers = []  # started by the first next(), so an unused instance holds no processes
+        self.free, self.ready = queue.Queue(), queue.Queue()
+        self.producer = None
+        self.current = None
+        self.reads = 0
+
+    def produce(self):
+        try:
+            while True:
+                number = self.free.get()
+                if number is None:
+                    return
+                counts = []
+                for reader, path in zip(self.readers, self.sets[number]):
+                    remaining, lines = self.size * 4, 0
+                    with path.open('wb') as handle:
+                        while remaining:
+                            block = list(itertools.islice(reader.stdout, min(self.BLOCK_LINES, remaining)))
+                            if not block:
+                                break
+                            handle.writelines(block)
+                            lines += len(block)
+                            remaining -= len(block)
+                    counts.append(lines)
+                if len(set(counts)) != 1 or counts[0] % 4:
+                    raise RuntimeError(f'FASTQの行数が不正です（{counts}行）。ペアの_1と_2が対応していません。')
+                if not counts[0]:
+                    for reader in self.readers:
+                        if reader.wait():
+                            raise RuntimeError(f'FASTQの展開に失敗しました（gzip終了コード {reader.returncode}）')
+                    self.ready.put(None)
+                    return
+                self.ready.put((number, counts[0] // 4))
+        except Exception as error:
+            self.ready.put(error)
+
+    def next(self):
+        """Paths of the next block's FASTQ files (the previous block is done with), or None at the end."""
+        if self.producer is None:
+            self.readers = [subprocess.Popen(['gzip', '-dc', str(p)], stdout=subprocess.PIPE,
+                                             stdin=subprocess.DEVNULL) for p in self.fastqs]
+            self.free.put(0)
+            self.free.put(1)
+            self.producer = threading.Thread(target=self.produce, daemon=True)
+            self.producer.start()
+        elif self.current is not None:
+            self.free.put(self.current)
+        item = self.ready.get()
+        if isinstance(item, Exception):
+            raise item
+        if item is None:
+            self.current = None
+            return None
+        self.current, reads = item
+        self.reads += reads
+        return self.sets[self.current]
+
+    def close(self):
+        for reader in self.readers:
+            if reader.poll() is None:
+                reader.kill()
+        if self.producer is not None:
+            self.free.put(None)
+            self.producer.join(timeout=60)
+        for reader in self.readers:
+            reader.wait()
+            reader.stdout.close()
+        for path in self.sets[0] + self.sets[1]:
+            path.unlink(missing_ok=True)
+
+
+class Shared:
+    """State shared by the analyses one server runs at the same time.
+
+    Analyses of different experiments often use the same SRX (a common WT) and always the same reference,
+    so each run, sample and reference is prepared by one analysis at a time; the others wait and reuse it.
+    """
+    def __init__(self, workers=1):
+        self.workers = max(1, int(workers))
+        self._guard = threading.Lock()
+        self._locks = {}
+        self.ram = threading.Condition()
+        self.ram_reserved = 0
+
+    def lock(self, key):
+        with self._guard:
+            return self._locks.setdefault(key, threading.Lock())
 
 
 class PipelinePaused(RuntimeError):
@@ -77,7 +234,8 @@ def stop_process(process):
 def atomic_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + '.partial')
+    # Unique per writer: analyses running at the same time may refresh the same cache file.
+    temporary = path.with_suffix(path.suffix + f'.{os.getpid()}.{threading.get_ident()}.partial')
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
     os.replace(temporary, path)
 
@@ -148,6 +306,8 @@ def validate_request(payload):
         result['pause_after_reference'] = True
     if payload.get('confirm_replicates') is True:
         result['confirm_replicates'] = True
+    if payload.get('ram_work') is True:
+        result['ram_work'] = True
     return result
 
 
@@ -227,7 +387,7 @@ def resolve_runs(accession, assembly, cache, note=None):
 
 
 class Pipeline:
-    def __init__(self, data, references, threads, update, log, should_pause=None):
+    def __init__(self, data, references, threads, update, log, should_pause=None, ram=None, shared=None):
         self.data = Path(data).resolve()
         self.references = Path(references).resolve()
         self.threads = threads
@@ -240,6 +400,59 @@ class Pipeline:
         self.current_trim = None
         self.reference_fasta = None
         self.preprocessing = {}
+        self.ram = Path(ram) if ram else None
+        self.ram_root = None
+        # RAM work directory of the run being processed (None: work on disk).
+        self.work_dir = None
+        self.shared = shared or Shared()
+        self.ram_held = 0
+
+    @property
+    def work(self):
+        """Where SRA, FASTQ and fastp files are written: the run's RAM directory or the data folder."""
+        return self.work_dir or self.data
+
+    @contextlib.contextmanager
+    def exclusive(self, key, waiting):
+        """Hold a resource other analyses running at the same time may also prepare; wait (pausable) if busy."""
+        lock = self.shared.lock(key)
+        if not lock.acquire(blocking=False):
+            self.note(waiting)
+            self.update(activity=waiting)
+            while not lock.acquire(timeout=1):
+                self.checkpoint()
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def reserve_ram(self, run, amount):
+        """Hold part of the RAM work area until this run's BAM is saved; wait while other analyses use it."""
+        capacity = shutil.disk_usage(self.ram).total
+        if amount > capacity * 0.9:
+            raise RuntimeError(f'{run}: RAM作業領域（{capacity / GIB:.0f} GiB）に収まりません'
+                               f'（見積もり {amount / GIB:.0f} GiB）。RAMを使わない設定で実行してください。')
+        shared = self.shared
+        with shared.ram:
+            if shared.ram_reserved + amount > capacity * 0.9:
+                self.note(f'{run}: RAM作業領域の空き待ち（見積もり {amount / GIB:.0f} GiB、'
+                          f'使用予約 {shared.ram_reserved / GIB:.0f} / {capacity / GIB:.0f} GiB）')
+            while shared.ram_reserved + amount > capacity * 0.9:
+                shared.ram.wait(timeout=1)
+                self.checkpoint()
+            shared.ram_reserved += amount
+        self.ram_held += amount
+
+    def shrink_ram(self, amount):
+        """Lower this run's reservation (never raise it) so waiting analyses can start converting."""
+        if self.ram_held > amount:
+            with self.shared.ram:
+                self.shared.ram_reserved -= self.ram_held - amount
+                self.shared.ram.notify_all()
+            self.ram_held = amount
+
+    def release_ram(self):
+        self.shrink_ram(0)
 
     def checkpoint(self):
         if self.should_pause():
@@ -261,17 +474,17 @@ class Pipeline:
         storage_bytes = None
         storage_label = ''
         if command == 'prefetch' and self.current_run:
-            folder = self.data / 'sra' / self.current_run
+            folder = self.work / 'sra' / self.current_run
             paths = (p for p in folder.rglob('*') if p.is_file() and p.suffix not in ('.lock', '.prf'))
             storage_label = 'SRA保存領域'
         elif command == 'fasterq-dump' and self.current_run:
-            paths = (self.data / 'fastq' / self.current_run).glob('*.fastq')
+            paths = (self.work / 'fastq' / self.current_run).glob('*.fastq')
             storage_label = 'FASTQ書き出し済み'
         elif command == 'fastp' and self.current_trim:
             paths = self.current_trim.glob('*.partial.fastq.gz')
             storage_label = '前処理済みFASTQ書き出し済み'
         elif command == 'HISAT2 / samtools sort' and self.current_run:
-            paths = (self.data / 'bam' / self.current_run).rglob('*.partial.bam')
+            paths = ((self.work / 'bam' / self.current_run) if self.work_dir else (self.data / 'bam' / self.current_run)).rglob('*.partial.bam')
             storage_label = 'BAM書き出し済み（バッファ中は増えません）'
         elif command == 'hisat2-build' and self.current_index:
             paths = self.current_index.glob('genome.*.ht2*')
@@ -329,14 +542,14 @@ class Pipeline:
         self.current_run = run
         signature = {'version': FASTQ_VERSION, 'run': run, 'layout': row['library_layout'],
                      'fasterq': versions['fasterq-dump'], 'mode': 'split-files'}
-        directory = self.data / 'fastq' / run
+        directory = self.work / 'fastq' / run
         directory.mkdir(parents=True, exist_ok=True)
         paired = row['library_layout'] == 'PAIRED'
         paths = [directory / (run + suffix + '.fastq') for suffix in (('_1', '_2') if paired else ('',))]
         if valid_cache(directory, signature):
             self.note(f'再利用 FASTQ: {run}')
             return paths
-        archive_root = self.data / 'sra'
+        archive_root = self.work / 'sra'
         archive_root.mkdir(parents=True, exist_ok=True)
         # prefetch resumes interrupted downloads and validates archive availability.
         self.update(stage='sra_download', message=f'{run}: SRAデータを取得中', transfer=None)
@@ -353,6 +566,8 @@ class Pipeline:
                                + ', '.join(map(str, candidates)))
         self.update(stage='sra_validate', message=f'{run}: 取得データの整合性を検査中')
         self.command(['vdb-validate', archive])
+        if self.work_dir:
+            self.reserve_ram(run, archive.stat().st_size * RAM_PER_ARCHIVE_BYTE + RAM_MARGIN)
         temp = directory / 'scratch'
         temp.mkdir(exist_ok=True)
         self.update(stage='fastq_convert', message=f'{run}: SRAをFASTQへ変換中')
@@ -366,6 +581,9 @@ class Pipeline:
         if unexpected:
             raise RuntimeError(f'{run}: 追加のFASTQが存在します。特殊なライブラリ構成には未対応です。')
         mark_complete(directory, signature, paths)
+        if self.work_dir:
+            shutil.rmtree(archive_root / run)  # the RAM copy of the archive is not needed after conversion
+            shutil.rmtree(temp, ignore_errors=True)
         return paths
 
     def trimmed_fastqs(self, row, raw, versions):
@@ -376,7 +594,7 @@ class Pipeline:
         options = fastp_options(layout)
         signature = {'version': FASTP_VERSION, 'run': run, 'layout': layout,
                      'raw_fastq': fingerprint(raw), 'fastp': versions['fastp'], 'options': options}
-        directory = self.data / 'trimmed' / run / digest(signature)
+        directory = self.work / 'trimmed' / run / digest(signature)
         directory.mkdir(parents=True, exist_ok=True)
         self.current_trim = directory
         paths = [directory / (run + suffix + '.trim.fastq.gz')
@@ -486,10 +704,16 @@ class Pipeline:
 
     def mapped_run(self, row, index, versions):
         run = row['run_accession']
+        with self.exclusive('run:' + run, f'{run}: 同時に実行中の別の解析がこのrunを処理中のため、完了を待って再利用します。'):
+            return self.locked_mapped_run(row, index, versions)
+
+    def locked_mapped_run(self, row, index, versions):
+        run = row['run_accession']
         self.current_run = run
         signature = {'version': PIPELINE_VERSION, 'run': run, 'layout': row['library_layout'],
                      'index': read_json(index.parent / 'complete.json'), 'hisat2': versions['hisat2'],
                      'samtools': versions['samtools'], 'options': mapping_options(row['library_layout']),
+                     'chunk_reads': MAPPING_CHUNK_READS,
                      'preprocessing': {'fastp': versions['fastp'], 'fastp_version': FASTP_VERSION,
                                        'fastp_options': fastp_options(row['library_layout']),
                                        'fasterq': versions['fasterq-dump'], 'fastq_version': FASTQ_VERSION}}
@@ -502,36 +726,103 @@ class Pipeline:
             self.note(f'再利用 BAM: {run}')
             self.cleanup_fastqs(run)
             return bam
-        self.update(stage='download', message=f'{run}: SRA取得・FASTQ変換')
+        if self.ram_root is None:
+            return self.map_reads(row, index, directory, bam, signature, versions)
+        # Download, convert, trim and map in RAM; only the finished BAM is written to disk.
+        self.work_dir = self.ram_root / run
+        shutil.rmtree(self.work_dir, ignore_errors=True)
+        self.work_dir.mkdir(parents=True)
+        try:
+            return self.map_reads(row, index, directory, bam, signature, versions)
+        finally:
+            shutil.rmtree(self.work_dir, ignore_errors=True)
+            self.work_dir = None
+            self.release_ram()
+
+    def map_reads(self, row, index, directory, bam, signature, versions):
+        run = row['run_accession']
+        self.update(stage='download', message=f'{run}: SRA取得・FASTQ変換' + ('（RAM上）' if self.work_dir else ''))
         raw = self.fastqs(row, versions)
         fastqs = self.trimmed_fastqs(row, raw, versions)
-        self.update(stage='mapping', message=f'{run}: HISAT2マッピング・BAM作成')
-        partial = directory / 'mapping.partial.bam'
-        align = ['hisat2', '-p', str(self.threads), *mapping_options(row['library_layout']),
-                 '-x', str(index), '--rg-id', run, '--rg', 'SM:' + run]
-        align += ['-1', str(fastqs[0]), '-2', str(fastqs[1])] if len(fastqs) == 2 else ['-U', str(fastqs[0])]
-        sort = ['samtools', 'sort', '-@', str(self.threads), '-o', str(partial), '-']
-        self.note('$ ' + ' '.join(align) + ' | ' + ' '.join(sort))
+        if self.work_dir:
+            for path in raw:
+                path.unlink()  # free RAM before mapping; fastp output is all HISAT2 needs
+            self.shrink_ram(sum(p.stat().st_size for p in fastqs) * RAM_PER_TRIMMED_BYTE + RAM_MAPPING_MARGIN)
+        self.update(stage='mapping', message=f'{run}: HISAT2マッピング・BAM作成' + ('（RAM上）' if self.work_dir else ''))
+        scratch = self.work / 'bam' / run if self.work_dir else directory
+        scratch.mkdir(parents=True, exist_ok=True)
+        partial = scratch / 'mapping.partial.bam'
+        for stale in [*scratch.glob('sort.partial*'), *scratch.glob('chunk*.fq')]:
+            stale.unlink()
+        memory = available_memory()
+        workers = self.shared.workers
+        sort_threads, sort_memory = sort_resources(self.threads, memory and memory // workers)
+        sort = ['samtools', 'sort', '-@', str(sort_threads), '-m', f'{sort_memory}M',
+                '-T', str(scratch / 'sort.partial'), '-o', str(partial), '-']
         self.checkpoint()
+        chunks = ReadChunks(fastqs, scratch)
+        limit = hisat2_memory_limit(memory, workers)
+        align = (['prlimit', f'--as={limit}', '--'] if limit else []) + [
+            'hisat2', '-p', str(self.threads), *mapping_options(row['library_layout']),
+            '-x', str(index), '--rg-id', run, '--rg', 'SM:' + run]
+        inputs = lambda paths: ['-1', str(paths[0]), '-2', str(paths[1])] if len(paths) == 2 else ['-U', str(paths[0])]
+        self.note('$ ' + ' '.join(align + inputs(chunks.sets[0])) + ' | ' + ' '.join(sort))
+        self.note(f'{run}: {MAPPING_CHUNK_READS:,}リードごとにHISAT2を起動し直してマッピング（-k {MULTIMAP_MAX}で'
+                  'HISAT2のメモリが増え続けるため）。入力: ' + ', '.join(map(str, fastqs)))
         with self.log.open('ab') as log:
-            aligner = subprocess.Popen(align, stdout=subprocess.PIPE, stderr=log, stdin=subprocess.DEVNULL,
-                                       start_new_session=(os.name == 'posix'))
-            sorter = None
+            sorter = subprocess.Popen(sort, stdin=subprocess.PIPE, stdout=log, stderr=log,
+                                      start_new_session=(os.name == 'posix'))
+            aligner, block = None, 0
             try:
-                sorter = subprocess.Popen(sort, stdin=aligner.stdout, stdout=log, stderr=log,
-                                          start_new_session=(os.name == 'posix'))
-                aligner.stdout.close()
+                while (paths := chunks.next()) is not None:
+                    block += 1
+                    # Only the first block writes the SAM header; samtools sort reads one continuous stream.
+                    aligner = subprocess.Popen(align + inputs(paths) + ([] if block == 1 else ['--no-hd']),
+                                               stdout=sorter.stdin, stderr=log, stdin=subprocess.DEVNULL,
+                                               start_new_session=(os.name == 'posix'))
+                    align_code = self.wait_process(aligner, 'HISAT2 / samtools sort')
+                    aligner = None
+                    if align_code:
+                        if sorter.poll() is not None:
+                            hint = f'samtools sortが先に終了しました（終了コード {sorter.returncode}）。'
+                        elif limit:
+                            hint = f'HISAT2のメモリ上限 {limit / GIB:.0f} GiB を超えた可能性があります。同時実行数を減らしてください。'
+                        else:
+                            hint = ''
+                        raise RuntimeError(f'{run}: マッピング失敗（HISAT2 終了コード {align_code}、'
+                                           f'{block}番目のブロック）。{hint}')
+                    self.note(f'{run}: HISAT2 {block}番目のブロック完了（累計 {chunks.reads:,}リード）')
+                sorter.stdin.close()
                 sort_code = self.wait_process(sorter, 'HISAT2 / samtools sort')
-                align_code = self.wait_process(aligner, 'HISAT2')
             except BaseException:
-                stop_process(aligner)
-                if sorter is not None:
-                    stop_process(sorter)
+                if aligner is not None:
+                    stop_process(aligner)
+                stop_process(sorter)
                 raise
-        if sort_code or align_code:
-            raise RuntimeError(f'{run}: マッピング失敗 (HISAT2={align_code}, samtools={sort_code})')
+            finally:
+                chunks.close()
+                if not sorter.stdin.closed:
+                    sorter.stdin.close()
+        if sort_code:
+            raise RuntimeError(f'{run}: マッピング失敗 (samtools sort={sort_code})')
         self.check_bam(partial)
         self.command(['samtools', 'index', '-@', self.threads, partial])
+        if self.work_dir:
+            # Keep the fastp QC reports beside the BAM; the RAM copies are discarded with the run.
+            report = dict(self.preprocessing[run])
+            for key in ('fastp_html', 'fastp_json'):
+                kept = directory / Path(report[key]).name
+                shutil.copyfile(report[key], kept)
+                report[key] = str(kept)
+            report.pop('raw_fastq', None)
+            report.pop('trimmed_fastq', None)
+            self.preprocessing[run] = report
+            # Copy to disk under the partial name first so an interruption never leaves a truncated BAM.
+            self.update(message=f'{run}: BAMをディスクへ保存中')
+            for source in (partial, Path(str(partial) + '.bai')):
+                shutil.copyfile(source, directory / source.name)
+                source.unlink()
+            partial = directory / partial.name
         os.replace(partial, bam)
         os.replace(Path(str(partial) + '.bai'), Path(str(bam) + '.bai'))
         preprocessing = directory / 'preprocessing.json'
@@ -544,6 +835,10 @@ class Pipeline:
     def sample_bam(self, accession, bams, versions):
         if len(bams) == 1:
             return bams[0]
+        with self.exclusive('sample:' + accession, f'{accession}: 同時に実行中の別の解析がこの検体を統合中のため待機しています。'):
+            return self.locked_sample_bam(accession, bams, versions)
+
+    def locked_sample_bam(self, accession, bams, versions):
         signature = {'version': PIPELINE_VERSION, 'sample': accession, 'runs': fingerprint(bams),
                      'samtools': versions['samtools'], 'merge': 'prefix-query-name-with-run'}
         directory = self.data / 'samples' / accession / digest(signature)
@@ -582,7 +877,14 @@ class Pipeline:
 
     def run(self, request, job_dir):
         self.update(stage='preflight', message='解析環境とSRX情報を確認中', progress=2)
-        self.note(f'実行設定: CPUスレッド数 {self.threads}')
+        self.note(f'実行設定: CPUスレッド数 {self.threads}' + (' / RAM上で取得〜マッピング' if request.get('ram_work') else ''))
+        if request.get('ram_work'):
+            if self.ram is None or not os.path.ismount(self.ram):
+                raise RuntimeError('RAM作業領域（tmpfs）がありません。start.shで起動し直すか、RAMを使わない設定で実行してください。')
+            self.ram_root = self.ram / job_dir.name
+            shutil.rmtree(self.ram_root, ignore_errors=True)  # left over from an interrupted attempt
+            self.note(f'RAM作業領域: {self.ram}（{shutil.disk_usage(self.ram).total / GIB:.0f} GiB）。'
+                      'SRA・FASTQはRAM上で処理し、BAMとfastpレポートだけをディスクに保存します。')
         versions = self.tools()
         rows = []
         seen_runs = set()
@@ -596,34 +898,41 @@ class Pipeline:
                 rows.append((accession, label.upper(), runs))
                 self.note(f'{accession} ({label.upper()}): ' + ', '.join(r['run_accession'] for r in runs))
         self.update(stage='reference', message='参照FASTA・GTFの取得／再利用、HISAT2索引を準備中', progress=5)
-        fasta, gtf = rnako.prepare_reference(request['assembly'], self.references,
-                                            progress=self.update, check_pause=self.checkpoint)
+        waiting = '同時に実行中の別の解析が参照・索引を準備中のため、完了を待って再利用します。'
+        with self.exclusive('reference', waiting):
+            fasta, gtf = rnako.prepare_reference(request['assembly'], self.references,
+                                                progress=self.update, check_pause=self.checkpoint)
         self.update(stage='reference_annotation', message='対象遺伝子の注釈を確認中', transfer=None)
         rnako.load_gene(gtf, request['gene'])  # Fail before downloading runs for a misspelled gene.
-        index = self.index(fasta, versions)
+        with self.exclusive('reference', waiting):
+            index = self.index(fasta, versions)
         self.update(reference_ready=True, activity='参照ゲノムとHISAT2索引を準備できました。')
         if request.get('pause_after_reference'):
             raise PipelinePaused('参照・索引の準備が完了したため中断しました。「再開」でデータ取得へ進みます。')
         samples = []
         done = 0
-        for accession, label, runs in rows:
-            bams = []
-            for row in runs:
-                self.update(progress=10 + int(65 * done / len(seen_runs)), runs_done=done,
-                            runs_total=len(seen_runs), message=f'{accession} / {row["run_accession"]} を処理中')
-                bams.append(self.mapped_run(row, index, versions))
-                done += 1
-                self.update(runs_done=done)
-            self.update(stage='merge', message=f'{accession}: runを検体単位に統合中')
-            samples.append({'srx_id': accession, 'metadata_label': label,
-                            'bam_path': str(self.sample_bam(accession, bams, versions))})
+        try:
+            for accession, label, runs in rows:
+                bams = []
+                for row in runs:
+                    self.update(progress=10 + int(65 * done / len(seen_runs)), runs_done=done,
+                                runs_total=len(seen_runs), message=f'{accession} / {row["run_accession"]} を処理中')
+                    bams.append(self.mapped_run(row, index, versions))
+                    done += 1
+                    self.update(runs_done=done)
+                self.update(stage='merge', message=f'{accession}: runを検体単位に統合中')
+                samples.append({'srx_id': accession, 'metadata_label': label,
+                                'bam_path': str(self.sample_bam(accession, bams, versions))})
+        finally:
+            if self.ram_root is not None:
+                shutil.rmtree(self.ram_root, ignore_errors=True)
         input_path = job_dir / 'input_samples.csv'
         with input_path.open('w', newline='', encoding='utf-8') as handle:
             writer = csv.DictWriter(handle, fieldnames=['srx_id', 'metadata_label', 'bam_path'])
             writer.writeheader()
             writer.writerows(samples)
         atomic_json(job_dir / 'provenance.json', {'request': request, 'tools': versions, 'pipeline_version': PIPELINE_VERSION,
-                    'threads': self.threads,
+                    'threads': self.threads, 'ram_work': self.ram_root is not None,
                     'experiments': [{'accession': a, 'label': l, 'runs': r} for a, l, r in rows],
                     'reference': fingerprint([fasta, gtf]), 'hisat2_index': str(index),
                     'workflow': ['prefetch', 'vdb-validate', 'fasterq-dump --split-files', 'fastp',

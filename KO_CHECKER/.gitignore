@@ -1,0 +1,8 @@
+references/
+workdata/
+results/
+inputs/
+dist/
+.env
+__pycache__/
+*.pyc

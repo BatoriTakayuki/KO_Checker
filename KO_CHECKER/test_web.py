@@ -200,7 +200,7 @@ class PipelineTests(unittest.TestCase):
             versions = {'hisat2': 'v1', 'samtools': 'v2', 'fastp': 'fp1', 'fasterq-dump': 'fq1'}
             signature = {'version': pipeline.PIPELINE_VERSION, 'run': 'SRR1', 'layout': 'SINGLE',
                          'index': {'reference': 'mm10'}, 'hisat2': 'v1', 'samtools': 'v2',
-                         'options': ['-k', '100', '--secondary'],
+                         'options': ['-k', '100', '--secondary'], 'chunk_reads': pipeline.MAPPING_CHUNK_READS,
                          'preprocessing': {'fastp': 'fp1', 'fastp_version': pipeline.FASTP_VERSION,
                                            'fastp_options': [], 'fasterq': 'fq1', 'fastq_version': pipeline.FASTQ_VERSION}}
             directory = engine.data / 'bam' / 'SRR1' / pipeline.digest(signature)
@@ -220,13 +220,19 @@ class PipelineTests(unittest.TestCase):
             atomic_json(index.parent / 'complete.json', {'reference': 'mm10'})
             from unittest.mock import MagicMock
             aligner = MagicMock(); aligner.wait.return_value = 1; aligner.poll.return_value = 1
-            sorter = MagicMock(); sorter.wait.return_value = 0
+            sorter = MagicMock(); sorter.wait.return_value = 0; sorter.poll.return_value = None
+            chunks = MagicMock(); chunks.sets = [[Path(temp)/'chunk0_1.fq']]; chunks.next.side_effect = [[Path(temp)/'chunk0_1.fq'], None]
             with patch.object(engine, 'fastqs', return_value=[Path(temp)/'read.fastq']), \
                  patch.object(engine, 'trimmed_fastqs', return_value=[Path(temp)/'read.trim.fastq.gz']), \
-                 patch('pipeline.subprocess.Popen', side_effect=[aligner,sorter]), \
-                 self.assertRaisesRegex(RuntimeError, 'HISAT2=1'):
+                 patch('pipeline.ReadChunks', return_value=chunks), \
+                 patch('pipeline.stop_process') as stop, \
+                 patch('pipeline.subprocess.Popen', side_effect=[sorter,aligner]), \
+                 self.assertRaisesRegex(RuntimeError, 'HISAT2 終了コード 1'):
                 engine.mapped_run({'run_accession':'SRR1','library_layout':'SINGLE'},index,
                                   {'hisat2':'v1','samtools':'v2','fastp':'fp1','fasterq-dump':'fq1'})
+            # Mock processes must never reach os.killpg (their pid would be taken as process group 1).
+            stop.assert_called_once_with(sorter)
+            chunks.close.assert_called_once()
             self.assertEqual(list(engine.data.rglob('complete.json')), [])
 
     def test_observation_export_distinguishes_zero_alt_and_no_depth(self):

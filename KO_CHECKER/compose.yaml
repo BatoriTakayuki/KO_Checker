@@ -3,11 +3,22 @@ services:
     build: .
     container_name: rnako
     init: true
+    # RAM work area for SRA, FASTQ and fastp files of jobs that work in RAM (memory is used only while files are in it).
+    tmpfs:
+      - /ramtmp:size=${KO_RAM_SIZE:-8g}
+    environment:
+      # Analyses run at the same time, and the default CPU threads of each (start.sh sets both for the server).
+      RNAKO_PARALLEL: ${KO_PARALLEL:-1}
+      RNAKO_THREADS: ${KO_THREADS:-}
     ports:
-      - "127.0.0.1:8080:8080"
+      # start.sh sets KO_BIND=0.0.0.0 to allow access from other PCs on the same network.
+      - "${KO_BIND:-127.0.0.1}:${KO_PORT:-8080}:8080"
     volumes:
       - ${RNAKO_DATA_DIR:-./inputs}:/data:ro
       - ./inputs:/inputs:ro
-      - ./references:/references
-      - ./results:/results
-      - ./workdata:/workdata
+      # Reference FASTA/GTF and HISAT2 index. KO_REFERENCES_DIR in .env can point to a folder already
+      # prepared by TES_Checker / TE_Checker (the same index is reused when the versions match).
+      - ${KO_REFERENCES_DIR:-./references}:/references
+      # KO_DATA_DIR / KO_RESULTS_DIR in .env move SRA, BAM and results to a larger disk.
+      - ${KO_RESULTS_DIR:-./results}:/results
+      - ${KO_DATA_DIR:-./workdata}:/workdata

@@ -44,6 +44,7 @@ async function submit(payload) {
 $('analysis-form').addEventListener('submit', event => {
   event.preventDefault(); const data=Object.fromEntries(new FormData(event.target));
   data.pause_after_reference=$('pause-after-reference').checked;
+  data.ram_work=$('ram-work').checked;
   data.confirm_replicates=$('confirm-replicates').checked;submit(data);
 });
 async function control(operation) {
@@ -200,12 +201,13 @@ async function refresh() {
   if (polling) return;polling=true;
   try {
     const jobs=await api('/api/jobs');$('history').replaceChildren();
-    for (const job of jobs) {
+    // Batch analyses are listed in the batch panel instead.
+    for (const job of jobs.filter(j=>!j.batch_id)) {
       const button=el('button',`${job.request.gene} · ${job.request.assembly} / ${statusText[job.status]}`);
       button.append(el('small',new Date(job.created_at).toLocaleString('ja-JP')));
       button.addEventListener('click',()=>choose(job.id));$('history').append(button);
     }
-    if (!jobs.length) $('history').append(el('p','まだ解析はありません。','muted'));
+    if (!jobs.some(j=>!j.batch_id)) $('history').append(el('p','まだ解析はありません。','muted'));
     if (!active && jobs.length) {active=jobs[0].id;$('empty').hidden=true;$('job').hidden=false;}
     if (!active) return;
     const selected=active;
@@ -213,7 +215,7 @@ async function refresh() {
     if (selected!==active) return;
     currentJob=job;
     $('job-id').textContent=`ANALYSIS · ${job.id.slice(0,8)}`;
-    $('job-title').textContent=`${job.request.gene} / ${job.request.assembly}${job.threads ? ` / ${job.threads}スレッド` : ''}`;
+    $('job-title').textContent=`${job.batch_label?`[一括 ${job.batch_label}] `:''}${job.request.gene} / ${job.request.assembly}${job.threads ? ` / ${job.threads}スレッド` : ''}`;
     $('status').textContent=job.pause_requested?'中断処理中':statusText[job.status];$('status').className=`badge ${job.status}${job.pause_requested?' pause-requested':''}`;
     progressDetails(job);
     $('job-message').textContent=job.message==='再開待ち。完了済みデータを再利用します。'?'再開待ちです。完了済みデータを再利用します。':job.message;$('progress').value=job.progress;
@@ -235,11 +237,15 @@ async function init() {
   try {
     const health=await api('/api/health');
     if (health.default_threads) $('threads').placeholder=`既定値: ${health.default_threads}スレッド（空欄可）`;
+    // RAM work is the default whenever the server has a RAM work area (tmpfs).
+    $('batch-parallel').max=health.parallel || 1;$('batch-parallel').value=health.parallel || 1;
+    for (const id of ['ram-work','batch-ram']) {$(id).disabled=!health.ram_work_gb;$(id).checked=!!health.ram_work_gb;}
+    $('ram-work-hint').textContent=health.ram_work_gb?`RAM作業領域: ${health.ram_work_gb} GiB。SRA・FASTQはRAM上で処理して破棄し、ディスクには書きません。\n大きなrunが入らない場合は、オフにしてディスク上で処理してください。`:'RAM作業領域がありません（start.shで起動すると使用できます）。';
     const missing=Object.entries(health.tools).filter(([,ok])=>!ok).map(([name])=>name);if(!health.pysam)missing.push('pysam');
     if (missing.length) {
       $('health').textContent=`解析環境が不足しています: ${missing.join(', ')}。Dockerで起動してください。画面の閲覧は可能です。`;
     } else {
-      $('health').replaceChildren('解析環境は準備済みです\n結果保存先の空き容量：', el('strong', `${health.disk_free_gb} GB`), '\n解析は1件ずつ実行します');
+      $('health').replaceChildren('解析環境は準備済みです\n結果保存先の空き容量：', el('strong', `${health.disk_free_gb} GB`), `\n解析は最大${health.parallel || 1}件を同時に実行します`);
     }
     $('health').classList.toggle('warning',!!missing.length);
   } catch(err) {$('health').textContent=`環境確認に失敗しました: ${err.message}`;}
