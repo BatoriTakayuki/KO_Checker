@@ -443,6 +443,47 @@ class Pipeline:
                 if dict(zip(reference.references, reference.lengths)) != dict(zip(alignment.references, alignment.lengths)):
                     raise RuntimeError(f'{bam.name}: BAMの参照名・全contig長が選択したFASTAと一致しません。再マッピングしてください。')
 
+    def cleanup_fastqs(self, run):
+        """Discard generated reads only after a usable run BAM is available."""
+        from storage import Storage, is_link
+        if not re.fullmatch(r'[SED]RR\d+', run):
+            raise ValueError('Invalid run accession for FASTQ cleanup')
+        directories = []
+        raw = self.data / 'fastq' / run
+        if raw.exists():
+            Storage.safe_path(self.data, raw)
+            directories.append(raw)
+        trimmed = self.data / 'trimmed' / run
+        if trimmed.exists():
+            Storage.safe_path(self.data, trimmed)
+            for directory in trimmed.iterdir():
+                if directory.is_dir():
+                    Storage.safe_path(self.data, directory)
+                    directories.append(directory)
+        targets = []
+        markers = []
+        for directory in directories:
+            reads = [p for p in directory.iterdir() if p.name.startswith(run)
+                     and p.name.endswith(('.fastq', '.fastq.gz', '.fq', '.fq.gz'))]
+            for path in reads:
+                if is_link(path.lstat()) or not path.is_file():
+                    raise ValueError('Unsafe FASTQ cleanup target')
+            targets.extend(reads)
+            marker = directory / 'complete.json'
+            if reads and marker.exists():
+                if is_link(marker.lstat()) or not marker.is_file():
+                    raise ValueError('Unsafe FASTQ completion marker')
+                markers.append(marker)
+        # Invalidate caches first, including when deletion is interrupted.
+        for marker in markers:
+            marker.unlink()
+        size = sum(p.stat().st_size for p in targets)
+        for path in targets:
+            path.unlink()
+        if targets:
+            self.note(f'{run}: BAM検証済みのため中間FASTQ {len(targets)}件を削除 ({size / 1024**3:.2f} GiB)。SRA・BAM・fastpレポートは保持。')
+        return size
+
     def mapped_run(self, row, index, versions):
         run = row['run_accession']
         self.current_run = run
@@ -459,6 +500,7 @@ class Pipeline:
             self.check_bam(bam)
             self.preprocessing[run] = read_json(directory / 'preprocessing.json') or {}
             self.note(f'再利用 BAM: {run}')
+            self.cleanup_fastqs(run)
             return bam
         self.update(stage='download', message=f'{run}: SRA取得・FASTQ変換')
         raw = self.fastqs(row, versions)
@@ -496,6 +538,7 @@ class Pipeline:
         atomic_json(preprocessing, self.preprocessing[run])
         mark_complete(directory, signature, [bam, Path(str(bam) + '.bai'), preprocessing])
         self.command(['samtools', 'flagstat', bam])
+        self.cleanup_fastqs(run)
         return bam
 
     def sample_bam(self, accession, bams, versions):

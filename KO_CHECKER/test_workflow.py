@@ -14,6 +14,40 @@ from pipeline import Pipeline, PipelinePaused, atomic_json, digest, mark_complet
 
 
 class PreprocessingTests(unittest.TestCase):
+    def test_cleanup_removes_generated_reads_but_keeps_archives_bam_and_qc(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); engine = self.engine(root)
+            folders = [engine.data/'fastq'/'SRR1', engine.data/'trimmed'/'SRR1'/'old',
+                       engine.data/'trimmed'/'SRR1'/'new']
+            for folder in folders:
+                folder.mkdir(parents=True)
+                (folder/'SRR1_1.trim.fastq.gz').write_bytes(b'reads')
+                (folder/'complete.json').write_text('{}')
+                (folder/'SRR1_fastp.json').write_text('{}')
+            archive = engine.data/'sra'/'SRR1'/'SRR1.sra'
+            archive.parent.mkdir(parents=True); archive.write_bytes(b'archive')
+            other = engine.data/'fastq'/'SRR2'/'SRR2.fastq'
+            other.parent.mkdir(parents=True); other.write_bytes(b'other')
+            self.assertEqual(engine.cleanup_fastqs('SRR1'),15)
+            self.assertTrue(archive.exists()); self.assertTrue(other.exists())
+            for folder in folders:
+                self.assertFalse((folder/'complete.json').exists())
+                self.assertFalse((folder/'SRR1_1.trim.fastq.gz').exists())
+                self.assertTrue((folder/'SRR1_fastp.json').exists())
+            self.assertEqual(engine.cleanup_fastqs('SRR1'),0)
+
+    def test_cleanup_rejects_symlink_without_deleting_external_reads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);engine=self.engine(root)
+            folder=engine.data/'fastq'/'SRR1';folder.mkdir(parents=True)
+            outside=root/'outside.fastq';outside.write_text('keep')
+            try:
+                (folder/'SRR1.fastq').symlink_to(outside)
+            except OSError:
+                self.skipTest('symlinks unavailable')
+            with self.assertRaises(ValueError):engine.cleanup_fastqs('SRR1')
+            self.assertEqual(outside.read_text(),'keep')
+
     def engine(self, root, threads=2):
         return Pipeline(root / 'data', root / 'references', threads, lambda **kw: None, root / 'pipeline.log')
 
