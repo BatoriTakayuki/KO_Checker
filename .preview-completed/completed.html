@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KO_Checker | RNA evidence explorer</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@100..900&amp;display=swap"><style>.conclusion{border-top:4px solid var(--green)}.conclusion h2{font-size:23px;margin-top:6px}.conclusion-findings{display:grid;grid-template-columns:155px minmax(0,1fr);margin:0;gap:0 20px}.conclusion-findings dt,.conclusion-findings dd{padding:16px 0;border-bottom:1px solid var(--line)}.conclusion-findings dt{font-weight:700}.conclusion-findings dd{margin:0}.conclusion-findings p{margin:0}.conclusion-findings .hint{margin-top:8px}.conclusion ul{padding-left:22px;overflow-wrap:anywhere}.conclusion-overall{background:#edf5ef;padding:14px 16px;border-radius:0;margin:18px 0 0}.conclusion details li{font-size:12px;color:var(--muted)}@media(max-width:760px){.conclusion-findings{grid-template-columns:1fr}.conclusion-findings dt{padding-bottom:0;border:0}.conclusion-findings dd{padding-top:6px}}
+#exons-table td:nth-child(1){min-width:110px;white-space:nowrap}#exons-table td:nth-child(2){min-width:60px}#exons-table td:nth-child(3){min-width:220px;white-space:nowrap}#exons-table td:nth-child(4){min-width:115px}#exons-table td:nth-child(5){min-width:200px}#exons-table details p{white-space:pre-line}
+:root{--ink:#20352f;--muted:#67786f;--line:#dce5de;--paper:#f4f7f3;--green:#177453;--wt:#397eb8;--ko:#cb7850}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.7}header{background:#fff;border-bottom:1px solid var(--line);padding:20px 5%;display:flex;justify-content:space-between;align-items:center}.brand{font-size:25px;font-weight:800;letter-spacing:-1px}.brand small{font-size:12px;font-weight:400;letter-spacing:0;margin-left:15px;color:var(--muted)}.tag{font-size:12px;color:var(--muted)}main{max-width:1450px;margin:auto;padding:36px 4%}.eyebrow{font-size:11px;font-weight:700;letter-spacing:2px;color:var(--green)}h1{font-size:36px;line-height:1.4;margin:12px 0}h2{font-size:18px;margin:0 0 18px}h3{font-size:14px}h3 small{font-weight:400;color:var(--muted)}p{margin:8px 0 14px}.intro{max-width:880px;margin-bottom:24px}.intro>p{color:var(--muted)}.notice{font-size:12px}.health{padding:11px 16px;background:#e6efe5;border:1px solid #d5e3d2;border-radius:0;margin-bottom:22px;font-size:12px}.health.warning{background:#fff2dc;border-color:#eed3a8}.workspace{display:grid;grid-template-columns:310px minmax(0,1fr);gap:24px}.card{border:1px solid var(--line);background:#fff;border-radius:0;padding:24px;margin-bottom:22px;box-shadow:0 3px 12px #193b2010}.content{min-width:0}label{display:block;font-size:12px;font-weight:650;margin:17px 0 6px}input,select,textarea{width:100%;font:inherit;color:var(--ink);background:#fbfcfa;border:1px solid #cbd7cd;border-radius:0;padding:10px}textarea{resize:vertical;font-family:ui-monospace,monospace;font-size:13px}input:focus,textarea:focus,select:focus{outline:2px solid #9ac4b3;outline-offset:1px}button{cursor:pointer;border:0;border-radius:0;background:var(--green);color:white;font:inherit;font-weight:650;padding:12px 16px}button:disabled{opacity:.5;cursor:wait}form button{width:100%;display:flex;justify-content:space-between}.hint,.muted{color:var(--muted);font-size:12px}.hint{margin-top:12px}.error{color:#ad382b;white-space:pre-wrap;overflow-wrap:anywhere}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}.wt{background:var(--wt)}.ko{background:var(--ko)}details{border-top:1px solid var(--line);margin-top:16px;padding-top:12px}summary{cursor:pointer;font-size:13px;font-weight:600}details p{font-size:12px;margin-top:12px}.empty{min-height:365px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center}.empty-symbol{font-size:65px;color:var(--green);line-height:1.2}.empty p{max-width:460px;color:var(--muted)}.steps{font-size:12px;margin-top:26px;color:var(--muted)}.steps b{padding:0 10px;color:#a3b6aa}.section-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.section-top h2{margin-top:8px}.badge{display:inline-block;white-space:nowrap;border-radius:0;background:#e7ede8;padding:4px 10px;font-size:11px}.badge.KO_like{background:#ffebdf;color:#904821}.badge.WT_like,.badge.completed{background:#e1f1e9;color:#226348}.badge.failed{background:#fbe5e2;color:#ad382b}.progress-caption{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}progress{width:100%;height:10px;accent-color:var(--green)}pre{background:#172b25;color:#d9eadb;max-height:320px;overflow:auto;padding:16px;font:11px/1.7 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.secondary{background:#e7eee8;color:var(--ink)}.history button{display:block;background:transparent;color:var(--ink);text-align:left;border-bottom:1px solid var(--line);border-radius:0;width:100%;padding:12px 0;font-size:12px}.history small{display:block;color:var(--muted);font-weight:400}.summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}.summary>div{padding:12px 16px;background:#f4f7f3;border-radius:0;min-width:115px;font-size:12px}.summary strong{display:block;font-size:24px}.scroll{overflow:auto;max-height:540px}table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;color:var(--muted);font-weight:500;white-space:nowrap;background:#f6f8f5;position:sticky;top:0}th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}td{min-width:80px;max-width:300px;overflow-wrap:anywhere}td details{min-width:180px}td pre{max-width:360px;max-height:180px}.charts{display:grid;grid-template-columns:1fr 1fr;gap:24px}.bar-row{display:grid;grid-template-columns:105px minmax(0,1fr) 66px;align-items:center;gap:8px;font-size:11px;margin:12px 0}.bar-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar-track{background:#edf1ec;border-radius:0;height:16px}.bar{height:100%;border-radius:0;min-width:0}.bar-value{text-align:right}.downloads{display:flex;flex-wrap:wrap;gap:10px}a{color:var(--green);font-size:12px}.downloads a{padding:8px 12px;border:1px solid var(--line);border-radius:0;text-decoration:none}footer{text-align:center;color:var(--muted);font-size:11px;padding:24px}[hidden]{display:none!important}@media(max-width:1000px){.charts{grid-template-columns:1fr}.workspace{grid-template-columns:280px minmax(0,1fr)}}@media(max-width:760px){header{padding:15px 5%}.brand small,.tag{display:none}main{padding:26px 4%}h1{font-size:28px}.workspace{grid-template-columns:1fr}.card{padding:20px}.history{max-height:250px;overflow:auto}.section-top{flex-wrap:wrap}}
+:root .check-option{display:flex;align-items:center;gap:8px;font-weight:400}.check-option input{width:auto;flex-shrink:0}.job-metrics{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:12px}.job-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.badge.paused{background:#fff0d7;color:#855f22}#activity{white-space:pre-wrap;overflow-wrap:anywhere;max-height:90px;overflow:auto}
+.storage-panel>summary{font-size:16px;color:var(--green)}.storage-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:16px 0}.storage-actions button{font-size:12px}.storage-confirmation{border:1px solid #e5b6aa;border-radius:0;background:#fff8f4;padding:18px;margin-top:18px}.storage-confirmation ul{max-height:260px;overflow:auto;padding-left:22px}.danger{background:#a6382a}.storage-panel td:first-child{min-width:44px}.storage-panel input[type=checkbox]{width:18px;height:18px;cursor:pointer}.storage-panel td small{display:block;color:var(--muted);font-size:10px;margin-top:5px;overflow-wrap:anywhere}.storage-panel table{min-width:650px}#storage-status{font-weight:600}#storage-confirm-list li{margin-bottom:8px}
+.structure-controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:18px}.structure-controls label{margin:0;min-width:145px;flex:1}.structure-controls select{font-size:12px}.structure-controls .check-option{min-width:180px;align-self:center}.structure-diagram{overflow-x:auto;background:white;border:1px solid var(--line);border-radius:0}.structure-diagram svg{display:block;min-width:1050px}.structure-diagram svg g[tabindex]:focus{outline:2px solid #d0931b;outline-offset:3px}.structure-detail{padding:12px 15px;background:#f1f5f1;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;border-left:3px solid var(--green)}
+.brand-group{display:flex;align-items:center;gap:16px;min-width:0;flex-wrap:wrap}.brand-group .brand{white-space:nowrap}.brand-logo{display:block;width:72px;height:72px;object-fit:contain;flex-shrink:0}.brand-description{font-size:12px;color:var(--muted)}@media(max-width:760px){.brand-group{gap:12px}.brand-logo{width:60px;height:60px}.brand-description{display:none}}
+.intro{max-width:none}.intro h1{text-align:center}
+.intro>p,.health{font-size:14px;line-height:1.5}.intro>p{margin:0;text-align:center}.health{white-space:pre-line;text-align:left}
+.storage-panel>summary+p,.storage-panel>summary+p+p{line-height:1.5;margin-bottom:0}.storage-panel>summary+p+p{margin-top:0}
+#storage-status{font-weight:400;line-height:1.5;white-space:pre-line}
+:is(#storage-refresh,#storage-select-reads,#storage-select-bam,#storage-select-reference,#storage-clear){color:#fff;background:#1765bb;border:1px solid #1765bb;border-radius:0;box-shadow:none;padding:6px 12px}
+:is(#storage-refresh,#storage-select-reads,#storage-select-bam,#storage-select-reference,#storage-clear):hover:enabled{text-decoration:underline}
+.storage-panel>summary{color:#1765bb}
+.sentence-lines{line-height:1.5}details>.sentence-lines{margin-bottom:0}details>.sentence-lines+.sentence-lines{margin-top:0}
+#analysis-form>details>summary,aside>.card>details>summary,#log-panel>summary,#log-download{color:#1765bb}
+body,h1,pre{line-height:1.5}
+.badge.paused,.badge.queued{color:#ad382b;font-weight:700;background:transparent;border:0;border-radius:0;box-shadow:none;padding:0}
+#status.badge{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0}
+.badge.running{color:#000}
+.badge.pause-requested{color:#ad382b}
+:root{--ink:#000;--muted:#666;--line:#d5d9dc;--paper:#e6f3fa;--green:#000}
+header{background:var(--paper);border:0}
+.card,.card.conclusion{background:#eee;border:0;box-shadow:none}
+.health,.health.warning,.secondary,.danger,.conclusion-overall,.summary>div,.storage-confirmation,.structure-detail,th,pre,.bar-track,.badge,.badge.KO_like,.badge.WT_like,.badge.completed,.badge.failed{background:#eee}
+input,select,textarea{background:#fff;border:0}
+.health,.health.warning,.storage-confirmation,.structure-diagram,.structure-detail{border:0}
+.structure-diagram{background:#eee}
+button,.conclusion-overall,.summary>div,.downloads a,pre,.bar-track,.badge{border:0}
+button,.secondary,.danger,pre,.badge.WT_like,.badge.completed{color:#000}
+.card{box-shadow:none}
+input:focus,textarea:focus,select:focus{outline-color:#1765bb}
+#status.badge,.badge.paused,.badge.queued{background:transparent;border:0}
+#analysis-form button,.job-actions button,.storage-actions button,.structure-controls button{background:#1765bb;color:#fff;border:1px solid #1765bb}
+html,body,body *,body *::before,body *::after{font-family:"Noto Sans JP",sans-serif!important}
+progress{display:block;width:100%;height:22px;appearance:none;-webkit-appearance:none;border:0;border-radius:0;overflow:hidden;background:#fff;accent-color:#1765bb}
+progress::-webkit-progress-bar{background:#fff}
+progress::-webkit-progress-value{background:repeating-linear-gradient(135deg,#1765bb 0,#1765bb 10px,#fff 10px,#fff 16px)}
+progress::-moz-progress-bar{background:repeating-linear-gradient(135deg,#1765bb 0,#1765bb 10px,#fff 10px,#fff 16px)}
+.storage-capacity{gap:16px}.storage-capacity #storage-status{margin:0;flex:1;min-width:200px}.storage-capacity #storage-refresh{flex-shrink:0}
+.storage-selection{gap:8px;margin-top:8px}
+.storage-selection :is(#storage-select-reads,#storage-select-bam,#storage-select-reference){background:transparent;color:#1765bb;border:0;padding:6px 12px}
+.storage-selection :is(#storage-select-reads,#storage-select-bam,#storage-select-reference)[aria-pressed="true"]{background:#1765bb;color:#fff}
+.storage-selection #storage-clear{background:transparent;color:#ad382b;border:0;padding:6px 12px}
+.storage-selection #storage-clear:hover:enabled{text-decoration:none}
+#analysis-form>#submit{margin-top:24px}
+</style></head>
+<body>
+<header><div class="brand-group"><img class="brand-logo" src="data:image/png;base64,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" alt="幹細 BOYS / STEM CELL BOYS" width="72" height="72"><span class="brand">KO_Checker</span><span class="brand-description">RNA evidence explorer</span></div><span class="tag">SRX → FASTQ → BAM → RNA評価</span></header>
+<main>
+<section class="intro"><span class="eyebrow">RNA-SEQ / KO EVIDENCE</span><h1>KO_Checker</h1><p>WT群とKO群のSRXを指定し、対象遺伝子の変異・スプライシング・発現量を比較します。</p><p class="notice">結果はRNA上の暫定評価です。DNA上のKOやタンパク質消失を確定するものではありません。</p></section>
+<div id="health" class="health" role="status">解析環境を確認中…</div>
+<details id="storage-panel" class="card storage-panel"><summary>保存データの管理・削除（SSD容量）</summary><p>SRA・FASTQ・BAM・参照ファイルの容量を確認し、不要なデータを選んで削除できます。</p><p class="hint">データは複数の解析で共有しています。中断中の解析も、削除後の再開には再取得・再計算が必要になる場合があります。結論・CSV・ログ・解析履歴は保持します。</p><div class="storage-actions storage-capacity"><button type="button" id="storage-refresh" class="secondary">容量を更新</button><p id="storage-status" role="status" aria-live="polite">開くと容量を確認します。</p></div><div class="storage-actions storage-selection"><button type="button" id="storage-select-reads" class="secondary">SRA・FASTQを選択</button><button type="button" id="storage-select-bam" class="secondary">BAMを選択</button><button type="button" id="storage-select-reference" class="secondary">参照と索引を選択</button><button type="button" id="storage-clear" class="secondary">選択を解除</button></div><p id="storage-warning" class="hint"></p><div class="scroll"><table id="storage-table"></table></div><div class="storage-actions"><button type="button" id="storage-preview" disabled>選択したデータの削除内容を確認</button><span id="storage-selected">選択なし</span></div><div id="storage-confirmation" class="storage-confirmation" hidden><h3>削除内容の確認</h3><p id="storage-confirm-size"></p><ul id="storage-confirm-list"></ul><p>ごみ箱には移動せず、選択した共有データを完全に削除します。必要になったデータは再取得・再計算します。</p><div class="storage-actions"><button type="button" id="storage-delete" class="danger">確認したデータを完全に削除</button><button type="button" id="storage-cancel" class="secondary">キャンセル</button></div></div><p id="storage-error" class="error" role="alert"></p></details>
+<div class="workspace">
+<aside><section class="card"><h2>新規</h2><form id="analysis-form">
+<label for="gene">対象遺伝子</label><input id="gene" name="gene" placeholder="例: Phf3" required maxlength="120" pattern="[A-Za-z0-9_.-]+">
+<label for="assembly">参照ゲノム</label><select id="assembly" name="assembly"><option value="mm10">マウス · mm10 (GRCm38)</option><option value="mm39">マウス · mm39 (GRCm39)</option><option value="hg38">ヒト · hg38 (GRCh38)</option></select>
+<label for="wt"><span class="dot wt"></span> WT群のSRX</label><textarea id="wt" name="wt" placeholder="SRX123456&#10;SRX123457" required rows="4"></textarea>
+<label for="ko"><span class="dot ko"></span> KO群のSRX</label><textarea id="ko" name="ko" placeholder="SRX123458&#10;SRX123459" required rows="4"></textarea>
+<p class="hint sentence-lines">改行・カンマ・空白で複数指定できます。<br>各群30件までです。<br>ERX / DRXにも対応します。<br>SRR / ERR / DRRは入力対象外です。</p>
+<label class="check-option sentence-lines"><input type="checkbox" name="pause_after_reference" id="pause-after-reference">参照・索引が完成したら中断する</label>
+<details><summary>発現量の有意差を調べる（オプション）</summary><label class="check-option sentence-lines"><input type="checkbox" name="confirm_replicates" id="confirm-replicates">各SRXは独立した生物学的反復で、群間の組織・実験条件・バッチが比較可能であることを確認した</label><p class="hint sentence-lines">各群2検体以上で、相対発現量CPMの平均差の探索的な置換検定を行います。<br>対応のある検体や群とバッチが交絡するデータには使用しないでください。<br>RNA-seqの組成補正やバッチ補正は行いません。<br>未確認でも減少率は表示します。</p></details>
+<details><summary>CPUスレッド数（オプション）</summary><label for="threads">使用するスレッド数</label><input id="threads" name="threads" type="number" min="1" max="256" step="1" placeholder="空欄なら既定値" aria-describedby="threads-hint"><p id="threads-hint" class="hint">空欄ならサーバーの既定値を使用します。各ツールへの指定値で、処理全体のCPU使用量の上限ではありません。中断後の再開でも同じ設定を使用します。</p></details>
+<button type="submit" id="submit">解析を開始する <span>→</span></button><p id="form-error" class="error" role="alert"></p>
+</form><details><summary>解析条件とデータの扱い</summary><p class="sentence-lines">公開された通常のRNA-seqを対象とします。<br>各SRXの全runを統合します。<br>単一細胞・UMI・特殊なライブラリは対象外です。</p><p class="sentence-lines">prefetch → 整合性検査 → fasterq-dump → fastp → HISAT2 → samtoolsの順に処理します。<br>参照・元FASTQ・前処理済みFASTQ・完了済みBAMを保存して再利用します。</p><p class="sentence-lines">fastpでアダプタ除去・品質フィルタとQCレポートを作成します。<br>HISAT2は非ストランド指定、最大100マッピングを出力し、ペアエンドでは混合・discordantマッピングを無効にします。<br>KO評価には従来どおりユニークな一次アラインメントを使用します。<br>初回は数時間以上の処理と十分なディスク容量が必要になる場合があります。</p></details></section>
+<section class="card history"><h2>解析履歴</h2><div id="history"><p class="muted">まだ解析はありません。</p></div></section></aside>
+<div class="content">
+<section id="empty" class="card empty"><div class="empty-symbol">⌁</div><h2>比較するサンプルを登録してください</h2><p>遺伝子とWT・KO群のSRXを入力すると、取得からRNA評価までを自動で進めます。</p><div class="steps">SRX確認 <b>→</b> SRA取得 <b>→</b> HISAT2 <b>→</b> KO評価</div></section>
+<section id="job" class="card" hidden><div class="section-top"><div><span class="eyebrow" id="job-id"></span><h2 id="job-title"></h2></div><span id="status" class="badge"></span></div><p id="job-message" role="status" aria-live="polite"></p><progress id="progress" max="100" value="0"></progress><div class="progress-caption"><span id="stage"></span><span id="percent"></span></div>
+<div class="job-metrics"><span id="elapsed"></span><span id="run-count"></span><span id="last-update"></span></div>
+<p id="activity" class="hint"></p><p id="storage-progress" class="hint"></p><div id="transfer" hidden><progress id="transfer-progress" max="100" value="0"></progress><p id="transfer-text" class="hint"></p></div>
+<div class="job-actions"><button id="pause" class="secondary" hidden>中断する</button><button id="resume" hidden>再開する</button><button id="retry" class="secondary" hidden>同じ条件で再実行</button></div>
+<p id="pause-info" class="hint"></p><p id="job-error" class="error"></p><details id="log-panel"><summary>処理ログ</summary><pre id="log"></pre><a id="log-download">ログ全体をダウンロード</a></details></section>
+<div id="results" hidden>
+<section class="card conclusion" aria-labelledby="conclusion-title"><span class="eyebrow">CONCLUSION</span><h2 id="conclusion-title">解析の結論</h2><dl class="conclusion-findings"><dt>配列による評価</dt><dd id="conclusion-sequence"></dd><dt>WT比の発現量</dt><dd><p id="conclusion-expression"></p><p id="conclusion-statistics" class="hint"></p></dd><dt>局所的に低下したエクソン</dt><dd><p id="conclusion-exons"></p><ul id="conclusion-exon-highlights"></ul></dd><dt>NMDの解釈</dt><dd id="conclusion-nmd"></dd></dl><p id="conclusion-overall" class="conclusion-overall"></p><details><summary>この結論の範囲</summary><p id="conclusion-sequence-note"></p><ul id="conclusion-notes"></ul></details></section>
+<section class="card"><h2>エクソンのカバレッジとWT比較</h2><p id="exon-summary" role="status"></p><div class="scroll"><table id="exons-table"></table></div><p class="hint">「局所的な読み取り低下の疑い」はRNA上の所見であり、DNAのエクソン欠損を確定しません。深度10以上の塩基が80%以上あるWTと他エクソンを比較に使用します。他エクソンで補正した相対深度がWTの20%以下、かつ読まれた塩基が50%未満の場合に疑いを表示します。探索用の基準で、統計的な有意差検定ではありません。</p><details><summary>数値の読み方</summary><p class="hint">深度は塩基品質20以上の有効リード数です。断片数は品質フィルタ前の塩基も含め、エクソンに整列したユニーク断片数です。スキップ支持はエクソン全体をまたぐ接合断片数で、既存アイソフォームによる接合も含みます。ゼロ深度区間は最長の連続区間を示します。転写産物によってエクソン番号が異なるため座標を併記します。gRNA標的座標の自動特定は行わず、既知の標的部位の評価はこの表の座標と照合してください。</p></details></section>
+<section class="card" aria-labelledby="structure-title"><h2 id="structure-title">WTとKOの遺伝子構造</h2><p id="structure-status" class="hint"></p><div id="structure-controls" class="structure-controls" hidden><label>転写産物<select id="structure-transcript"></select></label><label>WT検体<select id="structure-wt"></select></label><label>KO検体<select id="structure-ko"></select></label><label>KO予測モデル<select id="structure-model"></select></label><label class="check-option"><input type="checkbox" id="structure-compress" checked>イントロンを短縮</label><label>表示倍率<select id="structure-zoom"><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option></select></label><button type="button" id="structure-save" class="secondary">図をSVGで保存</button></div><div id="structure-diagram" class="structure-diagram"></div><p id="structure-detail" class="structure-detail" role="status">エクソン・開始／終止コドン・変異を選ぶと詳細を表示します。</p><p class="hint">WTは参照注釈に観測された深度と変異を重ねた図です。KOの欠損・接合・終止コドンはモデルの仮定を含みます。薄い箱はUTR等の非CDS、太い箱は参照CDSまたはKOモデルの予測ORF（翻訳範囲が不明なら参照CDS）、赤い斜線は欠損候補、破線は条件付きの接合、ひし形は観測した変異です。図は5′→3′方向に描き、マイナス鎖ではゲノム座標が右へ減少します。</p></section>
+<section class="card"><h2>RNA領域欠損によるKO推定・アミノ酸配列</h2><p id="region-summary"></p><p class="hint">WTで十分読める領域の深度がライブラリ補正後に90%以上減少し、別の領域は保たれる場合を評価します。主要なコード配列の開始領域喪失、または30塩基以上かつ10%以上のコード領域喪失／フレームシフトをKO様の根拠にします。DNA欠失の確定ではありません。「coverage_only」は接合未確認の仮定モデルです。末端欠損では未知の末端配列を作らず、既知部分のペプチド断片だけを表示します。開始コドン欠損では翻訳開始位置を推測しません。</p><div class="scroll"><table id="regions-table"></table></div></section>
+<section class="card"><div class="section-top"><h2>RNA評価の結果</h2><span class="muted">検体ごとの証拠</span></div><div id="summary" class="summary"></div><div class="scroll"><table id="samples-table"></table></div><p class="hint">WT_likeは候補位置での参照配列などを支持する判定です。undeterminedはKO不成立を意味しません。発現量だけでKOを判定しません。</p></section>
+<section class="card"><h2>WT群とKO群の比較</h2><div class="charts"><div><h3>対象遺伝子の発現量 <small>CPM</small></h3><div id="cpm-chart"></div></div><div><h3>検体ごとのWT基準比</h3><div id="ratio-chart"></div></div></div><p class="hint">CPMはエクソン上のユニーク断片数をライブラリ断片数で補正した相対発現指標です（TPMや絶対mRNA量ではありません）。WT基準は、有効なライブラリ計数を持つWT指定検体すべての平均です。配列の判定保留でも発現量を比較します。有意差の評価条件と結果は冒頭の結論に表示します。</p></section>
+<section class="card"><h2>変異位置の局所支持率</h2><select id="event-select" aria-label="表示する変異"></select><div id="event-chart"></div><div id="event-depth" class="hint"></div><p class="hint">候補位置を全検体で再観測した結果です。深度10未満は低カバレッジのため参考値です。「未掲載」はデータ不足などを示し、0%とは異なります。支持率は遺伝子全体の異常mRNA割合ではありません。</p></section>
+<section class="card"><h2>判定根拠の詳細</h2><p id="table-limit" class="hint"></p><details open><summary>変異候補</summary><div class="scroll"><table id="events-table"></table></div></details><details><summary>スプライス接合</summary><div class="scroll"><table id="junctions-table"></table></div></details><details><summary>予測タンパク質・NMD</summary><p class="hint">注釈転写産物ごとに、1変異または1スキップを適用した予測です。タンパク質配列の存在や量の実測ではありません。</p><div class="scroll"><table id="effects-table"></table></div></details></section>
+<section class="card"><h2>解析データを保存</h2><div id="downloads" class="downloads"></div></section>
+</div></div></div></main><footer>KO_Checker · 既存のRNA KO evidence解析エンジンを使用</footer>
+<script>'use strict';
+const exonStatus = {no_coverage:'読み取りなし',low_coverage:'深度不足',covered:'深度基準を満たす',reference_sample:'WT比較用検体',insufficient_wt_coverage:'WTの深度不足で評価不能',insufficient_sample_coverage:'検体の深度不足で評価不能',suspected_local_depletion:'局所的な読み取り低下の疑い',no_specific_depletion:'局所低下の基準に該当せず'};
+const $ = id => document.getElementById(id);
+const statusText = {queued:'待機中',running:'解析中',paused:'中断中',completed:'完了',failed:'失敗'};
+const stages = {queued:'実行待ち',preflight:'入力確認',reference:'参照・索引',reference_download:'参照ダウンロード',reference_extract:'参照の展開',reference_index:'FASTA索引',reference_annotation:'遺伝子注釈の確認',hisat2_index:'HISAT2索引の構築',download:'SRA / FASTQ',sra_download:'SRAの取得',sra_validate:'SRAの整合性検査',fastq_convert:'FASTQへの変換',fastq_trim:'fastp前処理・QC',mapping:'HISAT2',merge:'SRX単位の統合',analysis:'RNA評価',completed:'完了',failed:'失敗',interrupted:'中断'};
+const explanations = {
+  'Reference-like RNA coverage across candidate lost coding regions; DNA genotype unconfirmed':
+    'WT様（評価した欠損候補領域は保持）：候補領域で十分なRNA読み取りがあります。DNAの遺伝子型や遺伝子全体のWTは未確定です。',
+  'KO-like RNA region loss in a major coding transcript; DNA breakpoints and protein function unconfirmed':'KO様（RNA領域欠損）：主要なコード配列が影響を受けています。DNAの欠失境界とタンパク質機能は未確認です。',
+  'Insufficient uniquely mapped exonic fragments to interpret lack of evidence':'対象遺伝子の有効断片が少なく、判断できません。',
+  'Potential damaging event enriched relative to WT-labelled samples; RNA evidence only':'比較検体より多い有害候補変異、または未注釈エクソンスキップを検出しました（RNA上の証拠）。',
+  'No KO-specific disruptive event demonstrated; cannot establish wild-type genotype from RNA':'KOを支持する特異的な異常を示せません。RNAだけではWTを確定できません。',
+  'Reference bases at covered KO-like variant site(s) and/or annotated junction support; other lesions remain possible':'確認できたKO候補位置の変異率が低い、または正常なスプライス接合を支持します。他の異常は否定できません。'
+};
+let active = null, rendered = null, currentJob = null, resultData = null, polling = false;
+async function api(path, options) {
+  const res = await fetch(path, options);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+function el(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+function number(value, digits=3) {
+  return value === '' || value === null || value === undefined ? '—' : Number(value).toLocaleString('ja-JP',{maximumFractionDigits:digits});
+}
+function choose(id) {
+  active = id; rendered = null; currentJob = null; resultData = null;
+  location.hash = id; $('results').hidden = true; $('empty').hidden = true; $('job').hidden = false;
+  refresh();
+}
+async function submit(payload) {
+  $('submit').disabled = true; $('form-error').textContent = '';
+  try {
+    const job = await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    choose(job.id);
+  } catch (err) { $('form-error').textContent = err.message; }
+  finally { $('submit').disabled = false; }
+}
+$('analysis-form').addEventListener('submit', event => {
+  event.preventDefault(); const data=Object.fromEntries(new FormData(event.target));
+  data.pause_after_reference=$('pause-after-reference').checked;
+  data.confirm_replicates=$('confirm-replicates').checked;submit(data);
+});
+async function control(operation) {
+  if (!active) return;
+  const selected=active;$('pause').disabled=true;$('resume').disabled=true;
+  try {
+    await api(`/api/jobs/${selected}/${operation}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    await refresh();
+  } catch(err) {$('form-error').textContent=err.message;}
+  finally {$('pause').disabled=false;$('resume').disabled=false;}
+}
+$('pause').addEventListener('click',()=>control('pause'));
+$('resume').addEventListener('click',()=>control('resume'));
+function duration(seconds) {
+  seconds=Math.max(0,Math.floor(seconds));
+  return `${Math.floor(seconds/3600)}時間${Math.floor(seconds%3600/60)}分${seconds%60}秒`;
+}
+function progressDetails(job) {
+  const start=Date.parse(job.attempt_started_at || job.created_at);
+  const end=job.status==='running'?Date.now():Date.parse(job.paused_at || job.updated_at);
+  $('elapsed').textContent=`今回の実行時間: ${duration((end-start)/1000)}`;
+  $('run-count').textContent=job.runs_total?`run完了: ${job.runs_done || 0} / ${job.runs_total}`:'';
+  $('last-update').textContent=`状態更新: ${new Date(job.updated_at).toLocaleTimeString('ja-JP')}`;
+  $('activity').textContent=job.activity || (job.active_command?`${job.active_command}の終了を待っています。`:'');
+  $('storage-progress').textContent=job.storage_bytes!==null && job.storage_bytes!==undefined?`${job.storage_label}: ${number(job.storage_bytes/1000000,1)} MB`:'';
+  $('pause').hidden=!['queued','running'].includes(job.status);
+  $('pause').disabled=!!job.pause_requested;
+  $('resume').hidden=job.status!=='paused';
+  $('pause-info').textContent=job.pause_requested?'中断中の表示になるまで、DockerとPCを終了しないでください。通信待ちなどで数十秒かかる場合があります。':job.status==='paused'?'中断済みです。完了済みの参照・FASTQ・BAMを保持しています。再開時は未完了の計算工程だけをやり直します。':['queued','running'].includes(job.status)?'中断すると実行中の処理を終了します。参照取得は配信元が対応していれば続きから再開し、計算途中の索引・マッピングは工程の最初からやり直します。':'';
+  const transfer=job.transfer;$('transfer').hidden=!transfer;
+  if(transfer) {
+    const total=Number(transfer.total_bytes),done=Number(transfer.done_bytes),rate=Number(transfer.rate_bps);
+    if(total>0)$('transfer-progress').value=Math.min(100,done/total*100);else $('transfer-progress').removeAttribute('value');
+    const size=`${number(done/1000000,1)} MB`+(total>0?` / ${number(total/1000000,1)} MB (${number(done/total*100,1)}%)`:'');
+    const speed=rate>0&&job.status==='running'?` · ${number(rate/1000000,2)} MB/s`:'';
+    const eta=rate>0&&total>done&&job.status==='running'?` · このファイルの残り目安 ${duration((total-done)/rate)}`:'';
+    $('transfer-text').textContent=`${transfer.name}: ${size}${speed}${eta}`+(transfer.resumed_from>0?` · ${number(transfer.resumed_from/1000000,1)} MBから再開`:'');
+  }
+}
+$('retry').addEventListener('click', () => {
+  if (currentJob) submit({...currentJob.request,wt:currentJob.request.wt.join('\n'),ko:currentJob.request.ko.join('\n')});
+});
+function table(id, rows, columns) {
+  const target = $(id); target.replaceChildren();
+  const head = el('tr');
+  columns.forEach(([,label]) => head.append(el('th',label)));
+  const thead = el('thead'); thead.append(head); target.append(thead);
+  const body = el('tbody');
+  for (const row of rows) {
+    const tr = el('tr');
+    for (const [key] of columns) {
+      const td = el('td'); const value = row[key] ?? '';
+      if (key === 'predicted_class') td.append(el('span',value,`badge ${value}`));
+      else if (key === 'transcript_exons' && value) {
+        const detail=el('details');const entries=value.split(';');detail.append(el('summary',`転写産物 ${entries.length}件`),el('p',entries.join('\n')));td.append(detail);
+      }
+      else if (key.endsWith('_protein') && value) {
+        const detail = el('details'); detail.append(el('summary',`${value.length} aa · 配列を表示`),el('pre',value)); td.append(detail);
+      } else td.textContent = value === '' ? '—' : (key === 'classification_reason' ? (explanations[value] || value) : ((key === 'coverage_status' || key === 'comparison_status') ? (exonStatus[value] || value) : String(value)));
+      tr.append(td);
+    }
+    body.append(tr);
+  }
+  if (!rows.length) {const tr=el('tr'); const td=el('td','該当するデータはありません。');td.colSpan=columns.length;tr.append(td);body.append(tr);}
+  target.append(body);
+}
+function bars(id, rows, maximum, fraction=false) {
+  const target = $(id); target.replaceChildren();
+  for (const row of rows) {
+    const line=el('div',undefined,'bar-row');
+    const label=el('span',row.id,'bar-label');label.title=`${row.id} (${row.group})`;
+    const track=el('div',undefined,'bar-track');
+    const bar=el('div',undefined,`bar ${row.group === 'WT'?'wt':'ko'}`);
+    const valid=row.value !== '' && row.value !== undefined && row.value !== null && Number.isFinite(Number(row.value));
+    bar.style.width = valid ? `${Math.min(100,Math.max(0,Number(row.value)/(maximum||1)*100))}%` : '0%';track.append(bar);
+    line.append(label,track,el('span',valid ? number(Number(row.value)*(fraction?100:1),2)+(fraction?'%':'') : '未掲載','bar-value'));
+    target.append(line);
+  }
+}
+function eventChart() {
+  if (!resultData) return;
+  const key=$('event-select').value;
+  bars('event-chart',resultData.tables.samples.map(s=>({id:s.srx_id,group:s.metadata_label,
+    value:resultData.tables.observations.find(e=>e.srx_id===s.srx_id && `${e.chrom}:${e.pos_1based}:${e.ref}:${e.alt}`===key)?.local_alt_fraction})),1,true);
+  $('event-depth').textContent=resultData.tables.observations.filter(e=>`${e.chrom}:${e.pos_1based}:${e.ref}:${e.alt}`===key).map(e=>`${e.srx_id}: ${e.alt_reads}/${e.depth_at_anchor} ${e.coverage_status==='low_depth'?'(低深度)':''}`).join(' / ');
+}
+$('event-select').addEventListener('change',eventChart);
+function conclusion(report) {
+  if (!report) return;
+  $('conclusion-sequence').textContent=report.sequence.text;
+  $('conclusion-expression').textContent=report.expression.text;
+  $('conclusion-statistics').textContent=report.expression.test.text;
+  $('conclusion-exons').textContent=report.exons.text;
+  $('conclusion-nmd').textContent=report.nmd.text;
+  $('conclusion-overall').textContent=report.overall;
+  $('conclusion-sequence-note').textContent=report.sequence.note;
+  $('conclusion-notes').replaceChildren(...report.notes.map(note=>el('li',note)));
+  const highlights=report.exons.strongest.map(row=>el('li',
+    `${row.srx_id}: ${row.chrom}:${row.exon_start_1based}-${row.exon_end_1based} · 他エクソン補正後のWT比 ${number(Number(row.relative_depth_vs_wt)*100,1)}%`));
+  $('conclusion-exon-highlights').replaceChildren(...highlights);
+  $('conclusion-exon-highlights').hidden=!highlights.length;
+}
+function results(data, job) {
+  resultData=data;const t=data.tables;
+  if (globalThis.prepareIGV) globalThis.prepareIGV(job.id);
+  if (globalThis.renderGeneStructure) globalThis.renderGeneStructure(data.structure,job.id);
+  $('results').hidden=false;
+  conclusion(data.conclusion);
+  $('summary').replaceChildren();
+  for (const state of ['KO_like','WT_like','undetermined']) {
+    const box=el('div',state);box.prepend(el('strong',t.samples.filter(s=>s.predicted_class===state).length));$('summary').append(box);
+  }
+  table('samples-table',t.samples,[['srx_id','入力ID'],['metadata_label','指定群'],['predicted_class','RNA評価'],['gene_unique_fragment_cpm','CPM'],['expression_relative_to_wt','WT平均比'],['coverage_warning','カバレッジ注意'],['classification_reason','判定根拠']]);
+  const exons=t.exon_coverage || [];
+  const regions=t.region_deletions || [];
+  const regionEffects={noncoding_region_loss:'非コード領域の欠損',coding_annotation_unresolved:'CDSの翻訳開始を確定できず',start_region_lost:'翻訳開始領域の喪失',terminal_coding_region_loss:'コード領域末端の喪失',region_loss_frameshift:'領域欠損によるフレームシフト',region_loss_inframe:'領域欠損（インフレーム）'};
+  const regionRows=regions.map(row=>({...row,effect:regionEffects[row.effect] || row.effect,
+    evidence:row.evidence==='junction_supported'?'増加した接合の支持あり':'カバレッジのみ・接合未確認',
+    ko_support:row.ko_support==='yes'?'KO様を支持':'このモデル単独では採用せず',
+    protein_prediction_status:row.protein_prediction_status.includes('unknown_3prime_end')?'未知の3′末端を含まない既知配列の断片':row.protein_prediction_status.includes('start_lost')?'開始領域が欠損・代替開始は未予測':row.protein_prediction_status==='not_available'?'予測できず':'注釈境界での接合を仮定・実在未確認'}));
+  $('region-summary').textContent=regions.length?`${regions.length}件の転写産物モデル。KO推定を支持する検体: ${[...new Set(regions.filter(r=>r.ko_support==='yes').map(r=>r.srx_id))].join(', ') || 'なし'}。配列と機能への影響は条件付き予測です。`:'領域欠損モデルはありません。過去の解析は同じ条件で再実行すると追加できます。';
+  table('regions-table',regionRows,[['srx_id','入力ID'],['transcript_id','転写産物'],['lost_exons','欠損エクソン番号'],['lost_regions','欠損候補領域'],['maximum_normalized_depth_ratio','欠損領域の最大WT比（ライブラリ補正）'],['evidence','接合の証拠'],['junction_support','増加した接合の支持断片'],['ko_support','KO様を支持'],['effect','予測影響'],['deleted_coding_nt','失われるCDS塩基数'],['coding_loss_fraction','CDS欠損率'],['reference_protein','参照アミノ酸配列'],['predicted_protein','条件付き予測アミノ酸配列／断片'],['protein_prediction_status','予測の範囲'],['nmd_prediction','モデル上のNMD'],['assumptions','仮定・未確定事項']]);
+  const percent=value=>`${number(Number(value)*100,1)}%`;
+  const exonRows=exons.map(row=>({...row,region:`${row.chrom}:${row.exon_start_1based}-${row.exon_end_1based}`,region_loss_status:row.region_loss_status==='suspected_region_loss'?'RNA領域欠損の疑い':'',covered_percent:percent(row.covered_fraction),sufficient_percent:percent(row.sufficient_depth_fraction)}));
+  table('exons-table',exonRows,[['srx_id','入力ID'],['metadata_label','指定群'],['region','エクソン座標 (1-based)'],['region_loss_status','RNA領域欠損評価'],['region_normalized_depth_ratio','領域欠損評価のWT比（ライブラリ補正）'],['coverage_status','読み取り状態'],['comparison_status','従来の他エクソン補正評価'],['mean_depth','平均深度'],['overlapping_fragments','重なる断片数'],['min_depth','最低深度'],['covered_percent','読まれた塩基'],['sufficient_percent','深度10以上の塩基'],['relative_depth_vs_wt','他エクソン補正後のWT比'],['wt_reference_samples','比較に使用したWT数'],['skipping_junction_fragments','スキップ接合支持断片'],['longest_zero_depth_region','最長ゼロ深度区間'],['transcript_exons','転写産物・エクソン番号']]);
+  const koExons=exons.filter(row=>row.metadata_label==='KO');
+  const suspected=koExons.filter(row=>row.comparison_status==='suspected_local_depletion').length;
+  const insufficient=koExons.filter(row=>row.comparison_status.startsWith('insufficient_')).length;
+  $('exon-summary').textContent=exons.length?`RNA領域欠損の疑い ${koExons.filter(r=>r.region_loss_status==='suspected_region_loss').length}件。従来の他エクソン補正では局所低下 ${suspected}件、深度条件で保留 ${insufficient}件。KO様への採用根拠は下の領域欠損モデルを参照してください。`:'この解析にはエクソン比較データがありません。「同じ条件で再実行」で追加できます。';
+  const cpm=t.samples.map(s=>({id:s.srx_id,group:s.metadata_label,value:s.gene_unique_fragment_cpm}));
+  bars('cpm-chart',cpm,Math.max(1,...cpm.map(r=>Number(r.value))));
+  const ratios=t.samples.map(s=>({id:s.srx_id,group:s.metadata_label,value:s.expression_relative_to_wt}));
+  bars('ratio-chart',ratios,Math.max(1,...ratios.map(r=>Number(r.value))));
+  // Include a direct WT/KO mean comparison alongside individual samples.
+  const mean=el('p',undefined,'hint');
+  mean.textContent=['WT','KO'].map(group=>{const values=t.samples.filter(s=>s.metadata_label===group && s.gene_unique_fragment_cpm!=='').map(s=>Number(s.gene_unique_fragment_cpm));return `${group}平均CPM: ${values.length?number(values.reduce((a,b)=>a+b,0)/values.length):'—'} (n=${values.length})`;}).join(' / ');
+  $('cpm-chart').append(mean);
+  const options=new Map();
+  t.observations.forEach(e=>options.set(`${e.chrom}:${e.pos_1based}:${e.ref}:${e.alt}`,`${e.chrom}:${e.pos_1based} ${e.ref} → ${e.alt}`));
+  $('event-select').replaceChildren();
+  for (const [value,label] of options) {const opt=el('option',label);opt.value=value;$('event-select').append(opt);}
+  if (!options.size) $('event-select').append(el('option','変異候補は検出されませんでした'));
+  eventChart();
+  table('events-table',t.events,[['srx_id','入力ID'],['chrom','染色体'],['pos_1based','位置 (1-based)'],['ref','参照'],['alt','変異'],['alt_reads','支持リード'],['depth_at_anchor','深度'],['local_alt_fraction','局所変異率'],['wt_label_max_fraction','比較側の最大率'],['comparison_status','比較結果']]);
+  table('junctions-table',t.junctions,[['srx_id','入力ID'],['intron_start_1based','開始'],['intron_end_1based','終了'],['support_fragments','支持断片'],['annotation_status','注釈'],['local_junction_depth','局所分母'],['local_skip_fraction','局所支持率'],['comparator_max_skip_fraction','比較側の最大率'],['comparison_status','比較結果'],['skipped_transcripts','スキップ対象']]);
+  table('effects-table',t.consequences,[['srx_id','入力ID'],['event_id','イベントID'],['transcript_id','転写産物'],['effect','影響'],['first_changed_aa','最初の変化 (aa)'],['reference_protein','参照タンパク質'],['predicted_protein','予測タンパク質'],['stop_to_last_junction_nt','終止→最終接合 (nt)'],['nmd_prediction','NMD予測']]);
+  $('table-limit').textContent=Object.entries(data.counts).map(([name,n])=>`${name}: ${n}件`).join(' / ')+'。各表は先頭1,000件まで表示します。全データはCSVから取得できます。';
+  $('downloads').replaceChildren();
+  for (const name of ['conclusion.txt','conclusion.json','samples.csv','events.csv','junctions.csv','consequences.csv','observations.csv',...(exons.length?['exon_coverage.csv']:[]),...(data.region_analysis_available ? ['region_deletions.csv','region_proteins.fasta','region_transcripts.fasta']:[]),...(data.structure?['gene_structure.json']:[]),'run.json','provenance.json','input_samples.csv','pipeline.log']) {
+    const link=el('a',name);link.href=`/api/jobs/${job.id}/files/${name}`;link.download=name;$('downloads').append(link);
+  }
+}
+async function refresh() {
+  if (polling) return;polling=true;
+  try {
+    const jobs=await api('/api/jobs');$('history').replaceChildren();
+    for (const job of jobs) {
+      const button=el('button',`${job.request.gene} · ${job.request.assembly} / ${statusText[job.status]}`);
+      button.append(el('small',new Date(job.created_at).toLocaleString('ja-JP')));
+      button.addEventListener('click',()=>choose(job.id));$('history').append(button);
+    }
+    if (!jobs.length) $('history').append(el('p','まだ解析はありません。','muted'));
+    if (!active && jobs.length) {active=jobs[0].id;$('empty').hidden=true;$('job').hidden=false;}
+    if (!active) return;
+    const selected=active;
+    const job=await api(`/api/jobs/${selected}`);
+    if (selected!==active) return;
+    currentJob=job;
+    $('job-id').textContent=`ANALYSIS · ${job.id.slice(0,8)}`;
+    $('job-title').textContent=`${job.request.gene} / ${job.request.assembly}${job.threads ? ` / ${job.threads}スレッド` : ''}`;
+    $('status').textContent=job.pause_requested?'中断処理中':statusText[job.status];$('status').className=`badge ${job.status}${job.pause_requested?' pause-requested':''}`;
+    progressDetails(job);
+    $('job-message').textContent=job.message==='再開待ち。完了済みデータを再利用します。'?'再開待ちです。完了済みデータを再利用します。':job.message;$('progress').value=job.progress;
+    $('percent').textContent=`${job.progress}%（工程の目安）`;$('stage').textContent=stages[job.stage]||job.stage;
+    $('job-error').textContent=job.status==='failed'?'処理が停止しました。ログで原因を確認し、解消後に再実行してください。':'';
+    $('retry').hidden=!['failed','completed'].includes(job.status);$('log-download').href=`/api/jobs/${job.id}/files/pipeline.log`;
+    if ($('log-panel').open || job.status==='failed') {
+      const log=await api(`/api/jobs/${selected}/log`);if(selected===active)$('log').textContent=log.text||'ログはまだありません。';
+    }
+    if (job.status==='completed' && rendered!==selected) {
+      const data=await api(`/api/jobs/${selected}/results`);
+      if(selected===active){results(data,job);rendered=selected;}
+    }
+  } catch(err) {$('form-error').textContent=`通信エラー: ${err.message}`;}
+  finally {polling=false;}
+}
+$('log-panel').addEventListener('toggle',()=>{if($('log-panel').open)refresh();});
+async function init() {
+  try {
+    const health=await api('/api/health');
+    if (health.default_threads) $('threads').placeholder=`既定値: ${health.default_threads}スレッド（空欄可）`;
+    const missing=Object.entries(health.tools).filter(([,ok])=>!ok).map(([name])=>name);if(!health.pysam)missing.push('pysam');
+    if (missing.length) {
+      $('health').textContent=`解析環境が不足しています: ${missing.join(', ')}。Dockerで起動してください。画面の閲覧は可能です。`;
+    } else {
+      $('health').replaceChildren('解析環境は準備済みです\n結果保存先の空き容量：', el('strong', `${health.disk_free_gb} GB`), '\n解析は1件ずつ実行します');
+    }
+    $('health').classList.toggle('warning',!!missing.length);
+  } catch(err) {$('health').textContent=`環境確認に失敗しました: ${err.message}`;}
+  if (/^#[a-f0-9]{32}$/.test(location.hash)) choose(location.hash.slice(1));
+  await refresh();setInterval(refresh,3000);
+}
+
+'use strict';
+(() => {
+  const ns='http://www.w3.org/2000/svg',get=id=>document.getElementById(id);
+  const palette={wt:'#256aa0',ko:'#a65b28',utr:'#dce9f3',loss:'#b32c3b',start:'#117044',stop:'#793c9e',variant:'#bb6500',ink:'#20352f'};
+  let data=null,currentSVG=null;
+  function svg(tag,attrs={},content) {
+    const node=document.createElementNS(ns,tag);
+    for(const [key,value] of Object.entries(attrs))node.setAttribute(key,String(value));
+    if(content!==undefined)node.textContent=String(content);
+    return node;
+  }
+  function line(root,x1,y1,x2,y2,attrs={}) {root.append(svg('line',{x1,y1,x2,y2,stroke:'#a6b5b0','stroke-width':1.4,...attrs}));}
+  function text(root,x,y,value,attrs={}) {root.append(svg('text',{x,y,fill:palette.ink,'font-family':'Noto Sans JP, sans-serif','font-size':12,...attrs},value));}
+  function interactive(node,title,detail,select) {
+    node.append(svg('title',{},title));node.setAttribute('tabindex','0');node.setAttribute('role','button');node.setAttribute('aria-label',title);
+    node.style.cursor='pointer';
+    const show=()=>select(detail);
+    node.addEventListener('click',show);
+    node.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();show();}});
+  }
+  function layout(tx,compressed) {
+    const intervals=tx.exons, left=95, span=1100;
+    const minimum=Math.min(...intervals.map(e=>e.start_1based)),maximum=Math.max(...intervals.map(e=>e.end_1based));
+    const total=intervals.reduce((n,e)=>n+e.end_1based-e.start_1based+1,0);
+    let cursor=left;
+    const boxes=intervals.map(exon=>{
+      let x,width;
+      if(compressed) {
+        x=cursor;width=Math.max(38,(span-(intervals.length-1)*28)*(exon.end_1based-exon.start_1based+1)/total);cursor+=width+28;
+      }else{
+        const a=tx.strand==='-'?maximum-exon.end_1based:exon.start_1based-minimum;
+        x=left+a/Math.max(1,maximum-minimum)*span;
+        width=Math.max(.8,(exon.end_1based-exon.start_1based+1)/Math.max(1,maximum-minimum)*span);
+      }
+      return {...exon,x,width};
+    });
+    const map=(position)=>{
+      const exon=boxes.find(e=>e.start_1based<=position&&position<=e.end_1based);
+      if(!exon)return null;
+      const fraction=tx.strand==='-'?(exon.end_1based-position)/(exon.end_1based-exon.start_1based+1):(position-exon.start_1based)/(exon.end_1based-exon.start_1based+1);
+      return exon.x+fraction*exon.width;
+    };
+    return {boxes,map,width:Math.max(1280,...boxes.map(e=>e.x+e.width+65)),minimum,maximum};
+  }
+  function coverage(source,sample,exon) {
+    return source.coverage.find(r=>r.srx_id===sample&&Number(r.exon_start_1based)===exon.start_1based&&Number(r.exon_end_1based)===exon.end_1based);
+  }
+  function draw(source,tx,wt,ko,model,compressed=true,select=()=>{}) {
+    const axis=layout(tx,compressed),height=710;
+    const root=svg('svg',{xmlns:ns,viewBox:`0 0 ${axis.width} ${height}`,width:axis.width,height,
+      role:'img','aria-label':`${source.gene} ${tx.id} WTとKOのエクソン・イントロン構造`,
+      'font-family':'Noto Sans JP, sans-serif'});
+    root.append(svg('rect',{width:axis.width,height,fill:'#fff'}));
+    const defs=svg('defs'),pattern=svg('pattern',{id:'region-loss-hatch',width:6,height:6,patternUnits:'userSpaceOnUse'});
+    pattern.append(svg('rect',{width:6,height:6,fill:'#fff1f1'}),svg('path',{d:'M-1 1L5 7M1 -1L7 5',stroke:'#d17880','stroke-width':1}));defs.append(pattern);root.append(defs);
+    text(root,24,29,`${source.gene}  ·  ${tx.id}`,{'font-size':19,'font-weight':700});
+    text(root,24,53,`${tx.chrom}:${axis.minimum.toLocaleString()}–${axis.maximum.toLocaleString()}  /  ${tx.strand}鎖  /  左5′ → 右3′${tx.strand==='-'?'（ゲノム座標は右へ減少）':''}`);
+    text(root,24,76,compressed?'模式図：イントロン短縮。小さいエクソンは視認性のため幅を拡大。':'ゲノム座標に比例した表示。細かい領域は倍率を上げて確認。',{'font-size':11,fill:'#61736c'});
+    const legend=[['#dce9f3','非CDS / UTR'],[palette.wt,'CDS / 予測ORF'],['url(#region-loss-hatch)','欠損候補'],[palette.start,'開始'],[palette.stop,'終止'],[palette.variant,'観測変異']];
+    legend.forEach(([color,label],i)=>{const x=24+i*160;root.append(svg('rect',{x,y:92,width:15,height:12,fill:color,stroke:'#8a9993'}));text(root,x+23,103,label,{'font-size':11});});
+    text(root,24,129,model?`KO：${model.kind==='region_loss'?'領域欠損の仮定モデル':'1変異のみを適用した仮定モデル'}。DNA欠失・実際の転写産物を確定しません。`:'KO：参照の構造・コドン位置に観測値を重ねています。正常な全長RNAの存在を確定しません。',{'font-size':11,fill:'#85512f'});
+    if(model?.kind==='region_loss')text(root,24,148,model.evidence==='junction_supported'?'接合の増加を支持するRNA読み取りあり。':'接合未確認：破線の接合と予測終止コドンは仮定に基づきます。',{'font-size':11,fill:palette.loss});
+    function track(sample,label,y,color,trackModel) {
+      text(root,24,y-13,label,{'font-size':16,'font-weight':700,fill:color});text(root,24,y+8,sample||'検体なし',{'font-size':10});
+      const removed=new Set(trackModel?.removed_exon_numbers||[]);
+      for(let i=0;i<axis.boxes.length-1;i++){
+        const a=axis.boxes[i],b=axis.boxes[i+1],conditional=!!trackModel;
+        line(root,a.x+a.width,y,b.x,y,{stroke:color,'stroke-dasharray':conditional?'5 4':'none'});
+        if(b.x-a.x-a.width>12)text(root,(a.x+a.width+b.x)/2,y-4,'›',{'text-anchor':'middle',fill:color});
+      }
+      // Connect surviving exons across lost blocks; keep absent exons visible
+      // underneath so WT and KO always share the same reference-coordinate axis.
+      const retained=axis.boxes.filter(e=>!removed.has(e.number));
+      for(let i=0;i<retained.length-1;i++){
+        const a=retained[i],b=retained[i+1];
+        if(b.number-a.number>1)root.append(svg('path',{d:`M${a.x+a.width} ${y-8} Q${(a.x+a.width+b.x)/2} ${y-52} ${b.x} ${y-8}`,
+          fill:'none',stroke:color,'stroke-width':2,'stroke-dasharray':trackModel.evidence==='junction_supported'?'none':'6 5'}));
+      }
+      for(const exon of axis.boxes){
+        const loss=removed.has(exon.number),row=coverage(source,sample,exon),group=svg('g');
+        group.append(svg('rect',{x:exon.x,y:y-7,width:exon.width,height:14,fill:loss?'url(#region-loss-hatch)':palette.utr,stroke:loss?palette.loss:color,'stroke-dasharray':loss?'4 3':'none'}));
+        const coding=(!loss&&Array.isArray(trackModel?.coding_segments))?trackModel.coding_segments
+          .map(c=>({start_1based:Math.max(c.start_1based,exon.start_1based),end_1based:Math.min(c.end_1based,exon.end_1based)}))
+          .filter(c=>c.start_1based<=c.end_1based):exon.cds;
+        for(const cds of coding){
+          const a=axis.map(cds.start_1based),b=axis.map(cds.end_1based);
+          group.append(svg('rect',{x:Math.min(a,b),y:y-12,width:Math.max(1,Math.abs(a-b)+exon.width/(exon.end_1based-exon.start_1based+1)),height:24,
+            fill:loss?'url(#region-loss-hatch)':color,stroke:loss?palette.loss:color,'stroke-dasharray':loss?'4 3':'none'}));
+        }
+        if(exon.width>=23)text(group,exon.x+exon.width/2,y+29,`E${exon.number}`,{'text-anchor':'middle','font-size':10,fill:loss?palette.loss:palette.ink});
+        if(exon.width>=32)text(group,exon.x+exon.width/2,y+45,row?`${Number(row.mean_depth).toFixed(1)}×`:'未計測',{'text-anchor':'middle','font-size':10,fill:'#61736c'});
+        const detail=`${label} ${sample} · E${exon.number} · ${tx.chrom}:${exon.start_1based}-${exon.end_1based} · 平均深度 ${row?.mean_depth??'未計測'} · 読まれた塩基 ${row?`${(Number(row.covered_fraction)*100).toFixed(1)}%`:'未計測'}${loss?' · 欠損候補（RNA上の推定）':''}`;
+        interactive(group,detail,detail,select);root.append(group);
+      }
+      const markers=trackModel||tx.reference;
+      for(const [kind,dy,colorMark] of [['start',-45,palette.start],['stop',-75,palette.stop]]){
+        const marker=markers[kind];if(!marker)continue;
+        const positions=marker.genomic_positions_1based.map(axis.map).filter(x=>x!==null);if(!positions.length)continue;
+        const x=positions[0],g=svg('g');
+        line(g,x,y-13,x,y+dy+5,{stroke:colorMark,'stroke-dasharray':trackModel?'3 3':'none'});
+        g.append(kind==='start'?svg('path',{d:`M${x} ${y+dy-5} l-6 10 h12 Z`,fill:colorMark}):svg('rect',{x:x-5,y:y+dy-5,width:10,height:10,fill:colorMark}));
+        const startUnresolved=kind==='start'&&marker.bases!=='ATG';
+        text(g,Math.min(axis.width-125,Math.max(80,x+9)),y+dy,`${kind==='start'?'開始':'終止'} ${marker.bases}${startUnresolved?'（開始未確認）':trackModel?'（仮定）':''}`,{'font-size':10,fill:colorMark});
+        const detail=`${label} ${kind==='start'?'開始':'終止'}コドン ${marker.bases} · cDNA ${marker.cdna_1based}–${marker.cdna_1based+2} · ${tx.chrom} ゲノム位置 ${marker.genomic_positions_1based.join(', ')} · ${marker.status}。${trackModel?'条件付きモデル。':'参照注釈上の位置で、WT配列の実測確定ではありません。'}`;
+        interactive(g,detail,detail,select);root.append(g);
+      }
+      const variantGroups=new Map();
+      for(const variant of source.variants.filter(v=>v.srx_id===sample&&Number(v.alt_reads)>0)){
+        if(!variantGroups.has(variant.pos_1based))variantGroups.set(variant.pos_1based,[]);
+        variantGroups.get(variant.pos_1based).push(variant);
+      }
+      for(const variants of variantGroups.values()){
+        const variant=variants[0],x=axis.map(Number(variant.pos_1based));if(x===null)continue;
+        const g=svg('g'),vy=y+65;
+        g.append(svg('path',{d:`M${x} ${vy-6} l6 6 -6 6 -6 -6 Z`,fill:palette.variant,stroke:'#fff'}));
+        const short=variants.length>1?`同位置に変異${variants.length}種`:variant.ref.length+variant.alt.length<12?`${variant.ref}→${variant.alt} · ${variant.alt_reads}/${variant.depth_at_anchor}`:`挿入欠失 · ${variant.alt_reads}/${variant.depth_at_anchor}`;
+        text(g,x,vy+17,short,{'text-anchor':'middle','font-size':10,fill:palette.variant});
+        const detail=variants.map(v=>`${label} ${sample} · ${v.chrom}:${v.pos_1based} ${v.ref}→${v.alt} · 変異支持 ${v.alt_reads}/${v.depth_at_anchor} · ${(Number(v.local_alt_fraction)*100).toFixed(1)}%${v.coverage_status==='low_depth'?'（低深度・参考値）':''}`).join('\n')+'。検出した変異がKOの原因とは限りません。';
+        interactive(g,detail,detail,select);root.append(g);
+      }
+    }
+    track(wt,'WT',255,palette.wt,null);track(ko,'KO',450,palette.ko,model);
+    text(root,24,562,'箱の下：エクソン番号と観測平均深度。変異・箱・コドンをクリック／Enterで詳細。',{'font-size':11,fill:'#61736c'});
+    const maxProtein=Math.max(tx.reference.protein_length||1,model?.protein_length||1),barWidth=560;
+    text(root,24,595,'予測タンパク質長',{'font-size':12,'font-weight':600});
+    for(const [value,label,y,color] of [[tx.reference.protein_length,'参照',616,palette.wt],[model?.protein_length,'KOモデル',646,palette.ko]]){
+      text(root,24,y+9,label,{'font-size':11});
+      if(value!==null&&value!==undefined){root.append(svg('rect',{x:110,y,width:value/maxProtein*barWidth,height:12,fill:color}));text(root,125+value/maxProtein*barWidth,y+10,`${value} aa${label==='KOモデル'?'（条件付き）':''}`,{'font-size':11});}
+      else text(root,110,y+10,'予測なし／翻訳開始・末端などが未確定',{'font-size':11});
+    }
+    text(root,axis.width-24,690,'参照注釈＋RNA観測／条件付きモデル。DNA上のKOを確定する図ではありません。',{'text-anchor':'end','font-size':10,fill:'#61736c'});
+    return root;
+  }
+  function options(id,items,value) {
+    const node=get(id);node.replaceChildren();
+    for(const [key,label] of items){const option=document.createElement('option');option.value=key;option.textContent=label;node.append(option);}
+    if(items.some(([key])=>key===value))node.value=value;
+  }
+  function selectedTranscript(){return data?.transcripts.find(t=>t.id===get('structure-transcript').value);}
+  function models() {
+    const tx=selectedTranscript();if(!tx)return;
+    const sid=get('structure-ko').value,previous=get('structure-model').value;
+    const choices=[['reference','参照位置＋KO観測値（モデル適用なし）']];
+    if(tx.loss_models[sid])choices.push(['region','領域欠損を仮定したモデル']);
+    for(const model of tx.variant_models.filter(m=>m.srx_id===sid))choices.push([model.event_id,`1変異モデル ${model.event_id} · ${model.effect}`]);
+    options('structure-model',choices,choices.some(([key])=>key===previous)?previous:tx.loss_models[sid]?'region':'reference');
+  }
+  function redraw(){
+    const tx=selectedTranscript();if(!tx)return;
+    const sid=get('structure-ko').value,key=get('structure-model').value;
+    const model=key==='region'?tx.loss_models[sid]:tx.variant_models.find(m=>m.srx_id===sid&&m.event_id===key);
+    currentSVG=draw(data,tx,get('structure-wt').value,sid,model, get('structure-compress').checked,
+      detail=>{get('structure-detail').textContent=detail;});
+    currentSVG.style.width=`${Number(get('structure-zoom').value||1)*100}%`;currentSVG.style.height='auto';
+    get('structure-diagram').replaceChildren(currentSVG);
+    get('structure-detail').textContent=model?.note||'エクソン・開始／終止コドン・変異を選ぶと詳細を表示します。';
+  }
+  globalThis.renderGeneStructure=source=>{
+    data=source;currentSVG=null;get('structure-diagram').replaceChildren();
+    get('structure-controls').hidden=!source?.transcripts?.length;
+    get('structure-save').disabled=!source?.transcripts?.length;
+    get('structure-status').textContent=source?.transcripts?.length?'転写産物と検体を選んで比較できます。接合が未確認のKOモデルは仮定として表示します。':'この結果には構造図データがありません。同じ条件で再実行すると追加できます。';
+    if(!source?.transcripts?.length){get('structure-detail').textContent='';return;}
+    options('structure-transcript',source.transcripts.map(t=>[t.id,`${t.id} · ${t.reference.protein_length??'未確定'} aa`]),source.transcripts[0].id);
+    for(const [id,group] of [['structure-wt','WT'],['structure-ko','KO']]){
+      const samples=source.samples.filter(s=>s.group===group);options(id,samples.map(s=>[s.id,s.id]),samples[0]?.id);
+    }
+    // A new result should default to its region-loss model, never retain a
+    // reference-only selection made for an unrelated previous analysis.
+    get('structure-model').replaceChildren();get('structure-model').value='';models();redraw();
+  };
+  for(const id of ['structure-transcript','structure-ko'])get(id).addEventListener('change',()=>{models();redraw();});
+  for(const id of ['structure-wt','structure-model','structure-compress','structure-zoom'])get(id).addEventListener('change',redraw);
+  get('structure-save').addEventListener('click',()=>{
+    if(!currentSVG)return;
+    const copy=currentSVG.cloneNode(true);copy.removeAttribute('style');
+    const blob=new Blob([new XMLSerializer().serializeToString(copy)],{type:'image/svg+xml;charset=utf-8'}),url=URL.createObjectURL(blob);
+    const link=document.createElement('a');link.href=url;link.download=`${data.gene}_${selectedTranscript().id}_WT_KO.svg`;link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
+  globalThis.GeneStructureDiagram={draw,layout};
+})();
+
+// Fictional data for an isolated screenshot. No network or analysis requests.
+const samples = ['DEMO_WT1','DEMO_WT2','DEMO_KO1','DEMO_KO2'].map((id,i)=>({
+  srx_id:id,metadata_label:i<2?'WT':'KO',predicted_class:i<2?'WT_like':'KO_like',
+  gene_unique_fragment_cpm:[42.8,45.2,12.4,10.8][i],expression_relative_to_wt:[.973,1.027,.282,.245][i],
+  coverage_warning:'',classification_reason:i<2?'候補領域の読み取りを保持（架空例）':'RNA領域欠損を支持（架空例）'
+}));
+const exons = [1,2,3,4].map((n)=>({number:n,start_1based:100000+(n-1)*1200,end_1based:100299+(n-1)*1200,cds:[{start_1based:100000+(n-1)*1200,end_1based:100299+(n-1)*1200}]}));
+const coverage = samples.flatMap((s,i)=>exons.map((e,j)=>({
+  srx_id:s.srx_id,metadata_label:s.metadata_label,chrom:'chr1',exon_start_1based:e.start_1based,exon_end_1based:e.end_1based,
+  mean_depth:i<2?48+j*3:j===1?1.2:16+j,min_depth:i<2?25:j===1?0:8,overlapping_fragments:i<2?95:24,
+  covered_fraction:i>=2&&j===1?.12:1,sufficient_depth_fraction:i>=2&&j===1?.02:.96,
+  coverage_status:'covered',comparison_status:i<2?'reference_sample':j===1?'suspected_local_depletion':'no_specific_depletion',
+  region_loss_status:i>=2&&j===1?'suspected_region_loss':'',region_normalized_depth_ratio:i<2?1:j===1?.04:.95,
+  relative_depth_vs_wt:i<2?1:j===1?.04:.95,wt_reference_samples:2,skipping_junction_fragments:i<2?0:18,
+  longest_zero_depth_region:i>=2&&j===1?'chr1:101230-101410':'',transcript_exons:'DEMO_TX1:exon'+(j+1)
+})));
+const marker=(pos,bases)=>({bases,genomic_positions_1based:[pos,pos+1,pos+2],cdna_1based:1,status:'架空例'});
+const reference={protein_length:399,start:marker(100000,'ATG'),stop:marker(103897,'TAA')};
+const lossModel={kind:'region_loss',removed_exon_numbers:[2],protein_length:299,evidence:'junction_supported',start:reference.start,stop:reference.stop,note:'架空の表示例：エクソン2の領域欠損を仮定したモデルです。'};
+const structure={gene:'DemoGene',samples:samples.map(s=>({id:s.srx_id,group:s.metadata_label})),coverage,variants:[],
+  transcripts:[{id:'DEMO_TX1',chrom:'chr1',strand:'+',exons,reference,variant_models:[],loss_models:{DEMO_KO1:lossModel,DEMO_KO2:lossModel}}]};
+const regionRows=samples.slice(2).map(s=>({srx_id:s.srx_id,transcript_id:'DEMO_TX1',lost_exons:'2',lost_regions:'chr1:101200-101499',maximum_normalized_depth_ratio:.04,evidence:'junction_supported',junction_support:18,ko_support:'yes',effect:'region_loss_inframe',deleted_coding_nt:300,coding_loss_fraction:.25,protein_prediction_status:'conditional_exon_join_model',nmd_prediction:'表示例：早期終止なし',assumptions:'架空データによる条件付きモデル'}));
+const report={sequence:{text:'KO群2検体でRNA領域欠損を支持する所見があります（表示例）。',note:'このプレビューは架空のデータです。実際の解析結果ではありません。'},
+ expression:{text:'KO群の平均CPMはWT群の26.4%（約73.6%減少）です。',test:{text:'有意差の検定は未実施です（サンプル表示）。'}},
+ exons:{text:'KO群でエクソン2の局所的な読み取り低下を検出した場合の表示例です。',strongest:coverage.filter(r=>r.region_loss_status)},
+ nmd:{text:'この仮定モデルでは早期終止はなく、NMDを支持する予測はありません（表示例）。'},
+ overall:'表示例：RNA上でKO様の所見を認めます。DNA上の欠失やタンパク質消失を確定するものではありません。',notes:['数値・検体ID・遺伝子構造はすべて架空です。']};
+const demoData={tables:{samples,exon_coverage:coverage,region_deletions:regionRows,observations:[],events:[],junctions:[],consequences:[]},conclusion:report,structure,counts:{samples:4,exon_coverage:16,region_deletions:2,events:0,junctions:0},region_analysis_available:true};
+$('empty').hidden=true;$('job').hidden=false;
+$('health').textContent='完了画面の見本画像 ｜ 数値・判定・検体IDは架空です。実際の解析とは関係ありません。';
+$('job-id').textContent='PREVIEW · 架空のサンプル';$('job-title').textContent='DemoGene / mm10';
+$('status').textContent='完了';$('status').className='badge completed';
+$('job-message').textContent='解析が完了しました。結果を確認してください。';$('progress').value=100;
+$('stage').textContent='完了';$('percent').textContent='100%（工程の目安）';
+$('elapsed').textContent='今回の実行時間: 3時間24分18秒（架空例）';$('run-count').textContent='run完了: 4 / 4';
+$('pause').hidden=true;$('resume').hidden=true;$('retry').hidden=false;
+$('gene').value='DemoGene';$('wt').value='DEMO_WT1\nDEMO_WT2';$('ko').value='DEMO_KO1\nDEMO_KO2';
+$('history').replaceChildren(el('p','DemoGene · mm10 / 完了（表示例）'));
+results(demoData,{id:'preview'});
+document.querySelectorAll('a').forEach(node=>node.removeAttribute('href'));
+document.title='KO_Checker 完了画面プレビュー（架空データ）';
+</script></body></html>

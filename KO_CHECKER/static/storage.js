@@ -2,12 +2,21 @@
 (() => {
   let entries=[], selection=new Set(), checks=new Map(), token=null;
   let busy=false, blocked=false, limit=300;
+  const selectionGroups = [
+    ['storage-select-reads', ['sra','fastq','trimmed']],
+    ['storage-select-bam', ['bam','samples']],
+    ['storage-select-reference', ['reference','index']],
+  ];
   function bytes(value) {
     const amount=Number(value) || 0, units=['B','KB','MB','GB','TB'];
     const scale=amount>0?Math.min(4,Math.floor(Math.log(amount)/Math.log(1024))):0;
     return `${number(amount/1024**scale,scale?2:0)} ${units[scale]}`;
   }
   function buttons() {
+    for (const [id, kinds] of selectionGroups) {
+      const selected=entries.some(entry=>kinds.includes(entry.kind) && selection.has(entry.id));
+      $(id).setAttribute('aria-pressed',String(selected));
+    }
     for (const id of ['storage-select-reads','storage-select-bam','storage-select-reference','storage-clear']) $(id).disabled=busy || blocked;
     $('storage-refresh').disabled=busy;
     $('storage-preview').disabled=busy || blocked || !selection.size || selection.size>limit;
@@ -54,8 +63,12 @@
   }
   function select(kinds) {
     if (busy || blocked) return;
-    for (const entry of entries) {
-      if (entry.deletable && kinds.includes(entry.kind)) {selection.add(entry.id);checks.get(entry.id).checked=true;}
+    const group=entries.filter(entry=>entry.deletable && kinds.includes(entry.kind));
+    const deselect=group.some(entry=>selection.has(entry.id));
+    for (const entry of group) {
+      if (deselect) selection.delete(entry.id);
+      else selection.add(entry.id);
+      checks.get(entry.id).checked=!deselect;
     }
     changed();
   }
